@@ -2,6 +2,15 @@ const express = require('express');
 const fetch = require('node-fetch'); // v2 사용
 const app = express();
 
+// ★ CORS 허용 미들웨어 추가
+app.use((req, res, next) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Headers', '*');
+  res.set('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
+});
+
 // ★ 이 부분 추가!
 app.use(express.text({ type: 'text/plain' }));
 app.use(express.json());
