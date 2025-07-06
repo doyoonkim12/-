@@ -83,13 +83,127 @@ function parseDateAndTask(msg) {
   return null;
 }
 
-// 텔레그램 → GAS 할일 추가
+// 텔레그램 → GAS 할일 추가 및 기타 명령
 bot.on('message', async (msg) => {
-  const text = (msg.text || '').trim();
-  console.log('📱 텔레그램 메시지 수신:', text);
+  const textRaw = (msg.text || '').trim();
+  const text    = textRaw.replace(/\s+/g, ''); // 공백 제거 버전
+  console.log('📱 텔레그램 메시지 수신:', textRaw);
   console.log('👤 발신자:', msg.from.username || msg.from.first_name);
 
-  // 1) "할일" 입력 시 7일간 할일 목록 전송
+  // 공용 GAS 호출 유틸
+  const callGAS = async (func, params = {}) => {
+    const res   = await fetch(GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ func, params })
+    });
+    const txt   = await res.text();
+    try { return JSON.parse(txt); } catch(e){
+      console.error('JSON 파싱 오류:', e, txt); return null; }
+  };
+
+  // ===== 0) 공실 목록 =====
+  if (/^공실$/i.test(text)) {
+    try {
+      const result = await callGAS('getVacantRooms', {});
+      if(result && result.success && Array.isArray(result.data)){
+        const list = result.data;
+        if(list.length === 0){
+          bot.sendMessage(msg.chat.id, '모든 호실이 입주 중입니다! 🎉');
+        } else {
+          const rooms = list.map(r=>r.room).join(', ');
+          bot.sendMessage(msg.chat.id, `🏠 공실 (${list.length}개)\n${rooms}`);
+        }
+      }else{
+        bot.sendMessage(msg.chat.id, '❌ 공실 목록을 가져오지 못했습니다.');
+      }
+    }catch(err){
+      console.error('공실 처리 오류:', err);
+      bot.sendMessage(msg.chat.id, '❌ 오류: '+err.message);
+    }
+    return; // done
+  }
+
+  // ===== 1) 미납 (전월 기준) =====
+  if (/^미납$/i.test(text)) {
+    try {
+      const result = await callGAS('getAllRoomStatus', {});
+      const listData = Array.isArray(result) ? result : (result && result.data ? result.data : []);
+      if (Array.isArray(listData)) {
+        // 전월 기준이 명확치 않아, unpaid>0 인 항목만 추출
+        const list = listData.filter(r => (parseFloat(r.unpaid)||0) > 0);
+        if(list.length === 0){
+          bot.sendMessage(msg.chat.id, '👏 미납 호실이 없습니다!');
+        } else {
+          let reply = `📑 미납 현황 (${list.length}개 호실)\n`;
+          list.forEach(r=>{
+            reply += `\n${r.room}호 : ${Number(r.unpaid||0).toLocaleString()}원`;
+          });
+          bot.sendMessage(msg.chat.id, reply);
+        }
+      } else {
+        bot.sendMessage(msg.chat.id, '❌ 미납 데이터를 가져오지 못했습니다.');
+      }
+    }catch(err){
+      console.error('미납 처리 오류:', err);
+      bot.sendMessage(msg.chat.id, '❌ 오류: '+err.message);
+    }
+    return;
+  }
+
+  // ===== 2) 전체 미납 (정산금 포함) =====
+  if (/^전체\s*미납$/i.test(textRaw)) {
+    try {
+      const result = await callGAS('getAllRoomStatus', {});
+      const listData = Array.isArray(result) ? result : (result && result.data ? result.data : []);
+      if (Array.isArray(listData)) {
+        const list = listData.filter(r => (parseFloat(r.settle)||0) > 0);
+        if(list.length === 0){
+          bot.sendMessage(msg.chat.id, '모든 호실이 정산 완료되었습니다!');
+        } else {
+          let reply = `📊 전체 미납/정산 현황 (${list.length}개)\n`;
+          reply += '\n호실 | 미납 | 정산\n----------------------';
+          list.forEach(r=>{
+            reply += `\n${r.room} | ${Number(r.unpaid||0).toLocaleString()} | ${Number(r.settle||0).toLocaleString()}`;
+          });
+          bot.sendMessage(msg.chat.id, reply);
+        }
+      }else{
+        bot.sendMessage(msg.chat.id, '❌ 전체 미납 데이터를 가져오지 못했습니다.');
+      }
+    }catch(err){
+      console.error('전체 미납 오류:', err);
+      bot.sendMessage(msg.chat.id, '❌ 오류: '+err.message);
+    }
+    return;
+  }
+
+  // ===== 3) 특정 호실 퇴실 정산 =====
+  if (/^\d{3,4}(호)?$/.test(text)) {
+    const room = text.replace(/호$/,'');
+    try {
+      const result = await callGAS('getSettlementSummary', { room });
+      if(result && result.success){
+        const prof = result.profile || {};
+        const remain = (result.remain||0).toLocaleString();
+        let reply = `🧾 ${room}호 퇴실 정산 요약\n`;
+        reply += `입주: ${prof.moveIn ? prof.moveIn.toString().split('T')[0] : '-'}\n`;
+        reply += `퇴실: ${prof.moveOut ? prof.moveOut.toString().split('T')[0] : '-'}\n`;
+        reply += `보증금: ${(prof.deposit||0).toLocaleString()}원\n`;
+        reply += `월세/관리비/주차비: ${(prof.rent||0).toLocaleString()}/${(prof.mgmt||0).toLocaleString()}/${(prof.park||0).toLocaleString()}\n`;
+        reply += `\n▶ 최종 정산 금액: ${remain}원`;
+        bot.sendMessage(msg.chat.id, reply);
+      }else{
+        bot.sendMessage(msg.chat.id, result.msg || '❌ 정산 정보를 가져오지 못했습니다.');
+      }
+    }catch(err){
+      console.error('정산 정보 오류:', err);
+      bot.sendMessage(msg.chat.id, '❌ 오류: '+err.message);
+    }
+    return;
+  }
+
+  // ===== 4) 할일 7일 조회 =====
   if (/^할일$/i.test(text)) {
     try {
       const today = new Date();
@@ -144,7 +258,7 @@ bot.on('message', async (msg) => {
   }
 
   // 2) 날짜+내용 형식이면 → 할일 추가 로직
-  const parsed = parseDateAndTask(text);
+  const parsed = parseDateAndTask(textRaw);
   if (parsed) {
     console.log('✅ 파싱 성공:', parsed);
 
