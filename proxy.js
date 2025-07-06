@@ -63,9 +63,13 @@ bot.on('message', (msg) => {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({ func: 'addTodo', params: { ...parsed, source: '텔레그램' } })
-    }).then(() => {
+    })
+    .then(res => res.text())
+    .then(data => {
+      console.log('GAS 응답:', data);
       bot.sendMessage(msg.chat.id, `할일 추가: ${parsed.date} - ${parsed.task}`);
-    }).catch(e => {
+    })
+    .catch(e => {
       bot.sendMessage(msg.chat.id, '시트 추가 실패: ' + e.toString());
       console.error('시트 추가 실패:', e);
     });
