@@ -124,28 +124,42 @@ bot.on('message', async (msg) => {
     return; // done
   }
 
-  // ===== 1) 미납 (전월 기준) =====
-  if (/^미납$/i.test(text)) {
+  // ===== 1) 금액 기준 필터 (예: 300000, 30만원, 300,000원) =====
+  const amountRegex = /^([\d,]+)(만원|원)?$/i;
+  if (amountRegex.test(textRaw)) {
     try {
-      const result = await callGAS('getAllRoomStatus', {});
-      const listData = Array.isArray(result) ? result : (result && result.data ? result.data : []);
-      if (Array.isArray(listData)) {
-        // 전월 기준이 명확치 않아, unpaid>0 인 항목만 추출
-        const list = listData.filter(r => (parseFloat(r.unpaid)||0) > 0);
-        if(list.length === 0){
-          bot.sendMessage(msg.chat.id, '👏 미납 호실이 없습니다!');
-        } else {
-          let reply = `📑 미납 현황 (${list.length}개 호실)\n`;
-          list.forEach(r=>{
-            reply += `\n${r.room}호 : ${Number(r.unpaid||0).toLocaleString()}원`;
-          });
-          bot.sendMessage(msg.chat.id, reply);
-        }
-      } else {
-        bot.sendMessage(msg.chat.id, '❌ 미납 데이터를 가져오지 못했습니다.');
+      const m = textRaw.match(amountRegex);
+      let numStr = m[1].replace(/,/g, '');
+      let value  = parseInt(numStr, 10);
+      const unit = m[2] || '';
+      if (/만원/i.test(unit)) value *= 10000;
+
+      const threshold = value;
+      if (isNaN(threshold) || threshold <= 0) {
+        bot.sendMessage(msg.chat.id, '⚠️ 금액을 인식하지 못했습니다.');
+        return;
       }
-    }catch(err){
-      console.error('미납 처리 오류:', err);
+
+      const res = await callGAS('getAllRoomStatus', {});
+      const listData = Array.isArray(res) ? res : (res && res.data ? res.data : []);
+
+      const list = listData.filter(r => (parseFloat(r.settle)||0) > 0 && (parseFloat(r.settle)||0) < threshold);
+
+      if (list.length === 0) {
+        bot.sendMessage(msg.chat.id, `조건에 맞는 호실이 없습니다.`);
+        return;
+      }
+
+      let reply = `📋 정산금 ${threshold.toLocaleString()}원 미만 호실 (${list.length}개)\n`;
+      reply += '\n호실 | 이름 | 연락처 | 미납 | 정산';
+      reply += '\n------------------------------------------';
+      list.forEach(r => {
+        reply += `\n${r.room} | ${r.name || '-'} | ${r.contact || '-'} | ${Number(r.unpaid||0).toLocaleString()} | ${Number(r.settle||0).toLocaleString()}`;
+      });
+
+      bot.sendMessage(msg.chat.id, reply);
+    } catch(err){
+      console.error('금액 필터 오류:', err);
       bot.sendMessage(msg.chat.id, '❌ 오류: '+err.message);
     }
     return;
@@ -186,12 +200,27 @@ bot.on('message', async (msg) => {
       if(result && result.success){
         const prof = result.profile || {};
         const remain = (result.remain||0).toLocaleString();
+
+        // 월별 표 작성
+        const header = result.header || [];
+        const bill   = result.billing || [];
+        const pay    = result.payment || [];
+        let tableStr = '\n월 | 청구 | 입금\n----------------';
+        header.forEach((m,i)=>{
+          tableStr += `\n${m} | ${Number(bill[i]||0).toLocaleString()} | ${Number(pay[i]||0).toLocaleString()}`;
+        });
+
         let reply = `🧾 ${room}호 퇴실 정산 요약\n`;
         reply += `입주: ${prof.moveIn ? prof.moveIn.toString().split('T')[0] : '-'}\n`;
         reply += `퇴실: ${prof.moveOut ? prof.moveOut.toString().split('T')[0] : '-'}\n`;
-        reply += `보증금: ${(prof.deposit||0).toLocaleString()}원\n`;
-        reply += `월세/관리비/주차비: ${(prof.rent||0).toLocaleString()}/${(prof.mgmt||0).toLocaleString()}/${(prof.park||0).toLocaleString()}\n`;
-        reply += `\n▶ 최종 정산 금액: ${remain}원`;
+        reply += `이름: ${prof.name || '-'}\n`;
+        reply += `연락처: ${prof.contact || '-'}\n`;
+        reply += `보증금: ${Number(prof.deposit||0).toLocaleString()}원\n`;
+        reply += `월세/관리비/주차비: ${Number(prof.rent||0).toLocaleString()}/${Number(prof.mgmt||0).toLocaleString()}/${Number(prof.park||0).toLocaleString()}\n`;
+        reply += tableStr + '\n';
+        reply += `\n총 청구 금액: ${Number(result.totalBilling||0).toLocaleString()} 원`;
+        reply += `\n총 입금 금액: ${Number(result.totalPayment||0).toLocaleString()} 원`;
+        reply += `\n최종 정산 금액: ${remain} 원`;
         bot.sendMessage(msg.chat.id, reply);
       }else{
         bot.sendMessage(msg.chat.id, result.msg || '❌ 정산 정보를 가져오지 못했습니다.');
