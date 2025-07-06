@@ -118,16 +118,23 @@ function parseDepositMessage(msg){
       dateStr = today.toISOString().split('T')[0];
     }
 
-    // 2) 금액
-    const amtMatch = lines.match(/([0-9,.]+)\s*원?/);
+    // 2) 금액 (쉼표 포함 숫자 + 원)
+    const amtMatch = lines.match(/([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)\s*원/);
     if(!amtMatch) return null;
     const amount = parseInt(amtMatch[1].replace(/[,]/g,''),10);
     if(!amount) return null;
 
-    // 3) 호실 (3~4자리 숫자)
-    const roomMatch = lines.match(/(\d{3,4})\s*호?/);
-    if(!roomMatch) return null;
-    const room = roomMatch[1];
+    // 3) 호실 (3~4자리 숫자 + '호' 필수)
+    let roomMatch = lines.match(/(\d{3,4})\s*호/);
+    let room = roomMatch ? roomMatch[1] : null;
+    // fallback: 마지막 3~4자리 숫자가 호실일 가능성
+    if(!room){
+       const tokens = lines.split(/\s+/);
+       for(let i=tokens.length-1;i>=0;i--){
+          if(/^(\d{3,4})$/.test(tokens[i])){ room=tokens[i]; break; }
+       }
+    }
+    if(!room) return null;
 
     // 4) 메모: 입금 라인 뒤쪽 나머지 글자
     let memo = lines.replace(/.*입금/i,'').trim();
