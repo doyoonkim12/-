@@ -315,10 +315,13 @@ bot.on('message', async (msg) => {
   }
 
   // ===== 3b) 호실 퇴실정산 PDF =====
-  if (/^\d{3,4}호?퇴실정산$/i.test(textRaw)) {
-    const room = textRaw.match(/(\d{3,4})/)[1];
+  const pdfMatch = textRaw.match(/^(\d{3,4})호?퇴실정산(?:\s+(\d{4}-\d{2}-\d{2}))?$/i);
+  if (pdfMatch) {
+    const room = pdfMatch[1];
+    const moveOut = pdfMatch[2] || null;
+    const params = moveOut ? { room, moveOut } : { room };
     try {
-      const res = await callGAS('exportSettlementPdf', { room });
+      const res = await callGAS('exportSettlementPdf', params);
       const url = res && res.url ? res.url : (res.data || '');
       if(url){
         bot.sendDocument(msg.chat.id, url, { caption: `${room}호 퇴실정산 PDF` });
