@@ -83,6 +83,60 @@ function parseDateAndTask(msg) {
   return null;
 }
 
+// 텍스트 → 입금정보 {date,amount,room,memo}
+function parseDepositMessage(msg){
+  try{
+    const lines = msg.split(/\n|\r/).map(s=>s.trim()).filter(Boolean).join(' ');
+    if(!/입금/i.test(lines)) return null;
+
+    // 1) 날짜 (여러 형식 지원)
+    const today = new Date();
+    let dateStr = null;
+    const datePatterns = [
+      /(\d{4})-(\d{2})-(\d{2})/,            // YYYY-MM-DD
+      /(\d{1,2})\/(\d{1,2})/,               // MM/DD or M/D
+      /(\d{1,2})월\s*(\d{1,2})일?/,          // 7월6일
+      /(\d{4})(\d{2})(\d{2})/,             // YYYYMMDD
+      /(\d{2})(\d{2})/                      // MMDD
+    ];
+    for(const re of datePatterns){
+      const m = lines.match(re);
+      if(m){
+        let y = m[1], mn = m[2], d = m[3];
+        if(!d){ // 패턴이 2그룹(MM/DD) 형태
+          d = mn; mn = y; y = today.getFullYear();
+        }
+        if(String(y).length===2) y = today.getFullYear();
+        if(String(y).length===4 && !d){ d = mn; mn = y.slice(2); y = today.getFullYear(); }
+        if(String(mn).length===1) mn='0'+mn;
+        if(String(d).length===1)  d='0'+d;
+        dateStr = `${y}-${mn}-${d}`;
+        break;
+      }
+    }
+    if(!dateStr){ // 기본 오늘
+      dateStr = today.toISOString().split('T')[0];
+    }
+
+    // 2) 금액
+    const amtMatch = lines.match(/([0-9,.]+)\s*원?/);
+    if(!amtMatch) return null;
+    const amount = parseInt(amtMatch[1].replace(/[,]/g,''),10);
+    if(!amount) return null;
+
+    // 3) 호실 (3~4자리 숫자)
+    const roomMatch = lines.match(/(\d{3,4})\s*호?/);
+    if(!roomMatch) return null;
+    const room = roomMatch[1];
+
+    // 4) 메모: 입금 라인 뒤쪽 나머지 글자
+    let memo = lines.replace(/.*입금/i,'').trim();
+    memo = memo.replace(/\s*[0-9,.]+원?.*/i,'');
+
+    return { room, amount, date: dateStr, memo };
+  }catch(e){ console.error('parseDepositMessage 오류',e); return null; }
+}
+
 // 텔레그램 → GAS 할일 추가 및 기타 명령
 bot.on('message', async (msg) => {
   const textRaw = (msg.text || '').trim();
@@ -154,10 +208,10 @@ bot.on('message', async (msg) => {
       }
 
       let reply = `📋 정산금 ${threshold.toLocaleString()}원 미만 호실 (${list.length}개)\n`;
-      reply += '\n호실 | 이름 | 연락처 | 미납 | 정산';
-      reply += '\n------------------------------------------';
+      reply += '\n호실 | 이름 | 연락처 | 미납 | 정산 | 특이사항';
+      reply += '\n--------------------------------------------------------------';
       list.forEach(r => {
-        reply += `\n${r.room} | ${r.name || '-'} | ${r.contact || '-'} | ${Number(r.unpaid||0).toLocaleString()} | ${Number(r.settle||0).toLocaleString()}`;
+        reply += `\n${r.room} | ${r.name || '-'} | ${r.contact || '-'} | ${Number(r.unpaid||0).toLocaleString()} | ${Number(r.settle||0).toLocaleString()} | ${r.remark||'-'}`;
       });
 
       bot.sendMessage(msg.chat.id, reply);
@@ -237,6 +291,7 @@ bot.on('message', async (msg) => {
         reply += `연락처: ${prof.contact || '-'}\n`;
         reply += `보증금: ${Number(prof.deposit||0).toLocaleString()}원\n`;
         reply += `월세/관리비/주차비: ${Number(prof.rent||0).toLocaleString()}/${Number(prof.mgmt||0).toLocaleString()}/${Number(prof.park||0).toLocaleString()}\n`;
+        reply += `특이사항: ${prof.remark || '-'}\n`;
         reply += tableStr + '\n';
         reply += `\n총 청구 금액: ${Number(totalBill).toLocaleString()} 원`;
         reply += `\n총 입금 금액: ${Number(totalPay).toLocaleString()} 원`;
@@ -248,6 +303,24 @@ bot.on('message', async (msg) => {
     }catch(err){
       console.error('정산 정보 오류:', err);
       bot.sendMessage(msg.chat.id, '❌ 오류: '+err.message);
+    }
+    return;
+  }
+
+  // ===== 3b) 호실 퇴실정산 PDF =====
+  if (/^\d{3,4}호?퇴실정산$/i.test(textRaw)) {
+    const room = textRaw.match(/(\d{3,4})/)[1];
+    try {
+      const res = await callGAS('exportSettlementPdf', { room });
+      const url = res && res.url ? res.url : (res.data || '');
+      if(url){
+        bot.sendDocument(msg.chat.id, url, { caption: `${room}호 퇴실정산 PDF` });
+      } else {
+        bot.sendMessage(msg.chat.id, '❌ PDF 생성 실패');
+      }
+    } catch(err){
+      console.error('PDF 오류:',err);
+      bot.sendMessage(msg.chat.id,'❌ PDF 생성 중 오류 발생');
     }
     return;
   }
@@ -304,6 +377,33 @@ bot.on('message', async (msg) => {
       bot.sendMessage(msg.chat.id, '❌ 할일 목록 조회 중 오류가 발생했습니다.');
     }
     return; // 처리 완료
+  }
+
+  // ===== 입금 데이터 등록 =====
+  const dep = parseDepositMessage(textRaw);
+  if(dep){
+    try{
+      const payload = { func:'addPaymentFromMobile', params:{
+        room: dep.room,
+        amount: dep.amount,
+        date: dep.date,
+        memo: dep.memo || '텔레그램',
+        manager: '관리자'
+      }};
+      const res = await fetch(GAS_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)});
+      const txt = await res.text();
+      let ok=false,msgRes='';
+      try{ const j=JSON.parse(txt); ok=j.success; msgRes=j.message||''; }catch(e){}
+      if(ok){
+        bot.sendMessage(msg.chat.id, `✅ ${dep.room}호 ₩${dep.amount.toLocaleString()} 입금 등록 완료!`);
+      }else{
+        bot.sendMessage(msg.chat.id, `❌ 등록 실패: ${msgRes||'오류'}`);
+      }
+    }catch(err){
+      console.error('입금 등록 오류:',err);
+      bot.sendMessage(msg.chat.id,'❌ 입금 등록 중 오류가 발생했습니다.');
+    }
+    return;
   }
 
   // 2) 날짜+내용 형식이면 → 할일 추가 로직
