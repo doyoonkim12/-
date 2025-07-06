@@ -55,14 +55,22 @@ function parseDateAndTask(msg) {
 
 // 텔레그램 → GAS 할일 추가
 bot.on('message', (msg) => {
+  console.log('텔레그램 메시지 수신:', msg.text);
   const parsed = parseDateAndTask(msg.text);
   if (parsed) {
+    console.log('파싱 결과:', parsed);
     fetch(GAS_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({ func: 'addTodo', params: { ...parsed, source: '텔레그램' } })
+    }).then(() => {
+      bot.sendMessage(msg.chat.id, `할일 추가: ${parsed.date} - ${parsed.task}`);
+    }).catch(e => {
+      bot.sendMessage(msg.chat.id, '시트 추가 실패: ' + e.toString());
+      console.error('시트 추가 실패:', e);
     });
-    bot.sendMessage(msg.chat.id, `할일 추가: ${parsed.date} - ${parsed.task}`);
+  } else {
+    bot.sendMessage(msg.chat.id, '메시지 형식이 올바르지 않습니다. 예: 7/6 청소하기');
   }
 });
 
