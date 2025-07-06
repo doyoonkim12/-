@@ -143,7 +143,10 @@ bot.on('message', async (msg) => {
       const res = await callGAS('getAllRoomStatus', {});
       const listData = Array.isArray(res) ? res : (res && res.data ? res.data : []);
 
-      const list = listData.filter(r => (parseFloat(r.settle)||0) > 0 && (parseFloat(r.settle)||0) < threshold);
+      const list = listData.filter(r => {
+        const val = parseFloat(r.settle)||0;
+        return Math.abs(val) < threshold; //  절대값 기준, 음수도 포함
+      });
 
       if (list.length === 0) {
         bot.sendMessage(msg.chat.id, `조건에 맞는 호실이 없습니다.`);
@@ -201,14 +204,31 @@ bot.on('message', async (msg) => {
         const prof = result.profile || {};
         const remain = (result.remain||0).toLocaleString();
 
-        // 월별 표 작성
-        const header = result.header || [];
-        const bill   = result.billing || [];
-        const pay    = result.payment || [];
+        // 월별 표 작성 (이번 달까지)
+        const headerRaw = result.header || [];
+        const billRaw   = result.billing || [];
+        const payRaw    = result.payment || [];
+
+        const todayYM = new Date().toISOString().slice(0,7); // YYYY-MM
+        const header = [];
+        const bill   = [];
+        const pay    = [];
+        headerRaw.forEach((m,i)=>{
+          if(m <= todayYM){
+            header.push(m);
+            bill.push(billRaw[i]||0);
+            pay.push(payRaw[i]||0);
+          }
+        });
+
         let tableStr = '\n월 | 청구 | 입금\n----------------';
         header.forEach((m,i)=>{
           tableStr += `\n${m} | ${Number(bill[i]||0).toLocaleString()} | ${Number(pay[i]||0).toLocaleString()}`;
         });
+
+        const totalBill = bill.reduce((s,v)=>s+v,0);
+        const totalPay  = pay.reduce((s,v)=>s+v,0);
+        const remainNow = totalPay - totalBill;
 
         let reply = `🧾 ${room}호 퇴실 정산 요약\n`;
         reply += `입주: ${prof.moveIn ? prof.moveIn.toString().split('T')[0] : '-'}\n`;
@@ -218,9 +238,9 @@ bot.on('message', async (msg) => {
         reply += `보증금: ${Number(prof.deposit||0).toLocaleString()}원\n`;
         reply += `월세/관리비/주차비: ${Number(prof.rent||0).toLocaleString()}/${Number(prof.mgmt||0).toLocaleString()}/${Number(prof.park||0).toLocaleString()}\n`;
         reply += tableStr + '\n';
-        reply += `\n총 청구 금액: ${Number(result.totalBilling||0).toLocaleString()} 원`;
-        reply += `\n총 입금 금액: ${Number(result.totalPayment||0).toLocaleString()} 원`;
-        reply += `\n최종 정산 금액: ${remain} 원`;
+        reply += `\n총 청구 금액: ${Number(totalBill).toLocaleString()} 원`;
+        reply += `\n총 입금 금액: ${Number(totalPay).toLocaleString()} 원`;
+        reply += `\n최종 정산 금액: ${Number(remainNow).toLocaleString()} 원`;
         bot.sendMessage(msg.chat.id, reply);
       }else{
         bot.sendMessage(msg.chat.id, result.msg || '❌ 정산 정보를 가져오지 못했습니다.');
