@@ -84,41 +84,93 @@ function parseDateAndTask(msg) {
 }
 
 // 텔레그램 → GAS 할일 추가
-bot.on('message', (msg) => {
-  console.log('📱 텔레그램 메시지 수신:', msg.text);
+bot.on('message', async (msg) => {
+  const text = (msg.text || '').trim();
+  console.log('📱 텔레그램 메시지 수신:', text);
   console.log('👤 발신자:', msg.from.username || msg.from.first_name);
-  
-  const parsed = parseDateAndTask(msg.text);
+
+  // 1) "할일" 입력 시 7일간 할일 목록 전송
+  if (/^할일$/i.test(text)) {
+    try {
+      const today = new Date();
+      const dates = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(today.getTime());
+        d.setDate(d.getDate() + i);
+        return d.toISOString().split('T')[0]; // YYYY-MM-DD
+      });
+
+      const fetchPromises = dates.map(dateStr => {
+        return fetch(GAS_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify({ func: 'getTodosByDate', params: { date: dateStr } })
+        })
+          .then(res => res.text())
+          .then(txt => {
+            try {
+              const json = JSON.parse(txt);
+              if (json.success && Array.isArray(json.data)) {
+                return { date: dateStr, list: json.data };
+              }
+            } catch (e) {
+              console.error('JSON 파싱 오류:', e);
+            }
+            return { date: dateStr, list: [] };
+          })
+          .catch(err => {
+            console.error('📡 GAS 호출 실패:', err);
+            return { date: dateStr, list: [] };
+          });
+      });
+
+      const results = await Promise.all(fetchPromises);
+      let reply = '🗓️ 앞으로 7일 할일 목록\n';
+      results.forEach(r => {
+        const prettyDate = r.date.replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$1/$2/$3');
+        if (r.list.length === 0) {
+          reply += `\n${prettyDate} : 할일 없음`;
+        } else {
+          const tasks = r.list.map(t => `□ ${t.task}`).join('\n');
+          reply += `\n${prettyDate}\n${tasks}`;
+        }
+      });
+
+      bot.sendMessage(msg.chat.id, reply);
+    } catch (err) {
+      console.error('❌ 할일 목록 전송 실패:', err);
+      bot.sendMessage(msg.chat.id, '❌ 할일 목록 조회 중 오류가 발생했습니다.');
+    }
+    return; // 처리 완료
+  }
+
+  // 2) 날짜+내용 형식이면 → 할일 추가 로직
+  const parsed = parseDateAndTask(text);
   if (parsed) {
     console.log('✅ 파싱 성공:', parsed);
-    
+
     fetch(GAS_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({ func: 'addTodo', params: { ...parsed, source: '텔레그램' } })
     })
-    .then(res => {
-      console.log('📡 GAS 응답 상태:', res.status);
-      return res.text();
-    })
-    .then(data => {
-      console.log('📊 GAS 응답 데이터:', data);
-      try {
-        const result = JSON.parse(data);
-        if (result.success) {
+      .then(res => res.text())
+      .then(data => {
+        console.log('📊 GAS 응답 데이터:', data);
+        let ok = false;
+        try {
+          const result = JSON.parse(data);
+          ok = result.success;
+        } catch (e) {}
+        if (ok) {
           bot.sendMessage(msg.chat.id, `✅ 할일 추가 완료!\n📅 ${parsed.date}\n📝 ${parsed.task}`);
         } else {
-          bot.sendMessage(msg.chat.id, `❌ 할일 추가 실패: ${result.error || '알 수 없는 오류'}`);
+          bot.sendMessage(msg.chat.id, '❌ 할일 추가에 실패했습니다.');
         }
-      } catch (e) {
-        console.error('JSON 파싱 오류:', e);
-        bot.sendMessage(msg.chat.id, `✅ 할일 추가: ${parsed.date} - ${parsed.task}`);
-      }
-    })
-    .catch(e => {
-      console.error('❌ GAS 호출 실패:', e);
-      bot.sendMessage(msg.chat.id, `❌ 시트 추가 실패: ${e.toString()}`);
-    });
+      })
+      .catch(e => {
+        console.error('❌ GAS 호출 실패:', e);
+        bot.sendMessage(msg.chat.id, `❌ 시트 추가 실패: ${e.toString()}`);
+      });
   } else {
     bot.sendMessage(msg.chat.id, `❌ 메시지 형식이 올바르지 않습니다.\n\n✅ 올바른 형식:\n• 7/20 할일내용\n• 7월20일 할일내용\n• 0720 할일내용\n\n예: 7/20 804호 월세 받기`);
   }
