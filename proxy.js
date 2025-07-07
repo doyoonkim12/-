@@ -21,6 +21,26 @@ app.use(express.json());
 
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbw1iZg5NQNhuym7p1Ky7WUg6ffa7Pnn0LSVAuZL1mdDmpOgFlsnZuJbO-gLIXuv_BzwBA/exec';
 
+// Health check endpoint (서버 상태 확인용)
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'OK', 
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    bot_status: 'running'
+  });
+});
+
+// 루트 경로 (서버 정보 표시)
+app.get('/', (req, res) => {
+  res.json({
+    message: 'GAS Proxy Server with Telegram Bot',
+    status: 'running',
+    endpoints: ['/api', '/health'],
+    bot: 'telegram bot active'
+  });
+});
+
 // 프론트엔드 → GAS 프록시
 app.post('/api', async (req, res) => {
   try {
@@ -56,7 +76,7 @@ function parseDateAndTask(msg) {
   ];
   
   for (const regex of patterns) {
-    const match = msg.match(regex);
+  const match = msg.match(regex);
     if (match) {
       let month = match[1].padStart(2, '0');
       let day = match[2].padStart(2, '0');
@@ -71,12 +91,12 @@ function parseDateAndTask(msg) {
         continue;
       }
       
-      const year = new Date().getFullYear();
-      const date = `${year}-${month}-${day}`;
+  const year = new Date().getFullYear();
+  const date = `${year}-${month}-${day}`;
       
       console.log('✅ 파싱 성공:', { date, task });
-      return { date, task };
-    }
+  return { date, task };
+}
   }
   
   console.log('❌ 파싱 실패 - 지원되는 형식: 7/20 할일, 7월20일 할일, 0720 할일');
@@ -473,4 +493,20 @@ bot.on('message', async (msg) => {
   }
 });
 
-app.listen(3000, () => console.log('Proxy running on http://localhost:3000')); 
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Proxy running on port ${PORT}`);
+  console.log('Telegram Bot is active and ready!');
+  
+  // Self-ping to keep server alive (Render.com 무료 플랜용)
+  if (process.env.NODE_ENV === 'production') {
+    const RENDER_URL = process.env.RENDER_EXTERNAL_URL || 'https://weoldeumereudiang.onrender.com';
+    
+    setInterval(() => {
+      fetch(`${RENDER_URL}/health`)
+        .then(res => res.json())
+        .then(data => console.log('🏥 Health check:', data.timestamp))
+        .catch(err => console.log('❌ Health check failed:', err.message));
+    }, 14 * 60 * 1000); // 14분마다 (Render.com 15분 제한 회피)
+  }
+}); 
