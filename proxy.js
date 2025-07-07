@@ -172,8 +172,16 @@ bot.on('message', async (msg) => {
         if(list.length === 0){
           bot.sendMessage(msg.chat.id, '모든 호실이 입주 중입니다! 🎉');
         } else {
-          const rooms = list.map(r=>r.room).join(', ');
-          bot.sendMessage(msg.chat.id, `🏠 공실 (${list.length}개)\n${rooms}`);
+          // 호실 번호와 특이사항 함께 표시
+          let reply = `🏠 공실 (${list.length}개)\n\n`;
+          list.forEach(r => {
+            reply += `${r.room}호`;
+            if (r.remark && r.remark.trim() !== '' && r.remark !== '-') {
+              reply += ` (${r.remark})`;
+            }
+            reply += '\n';
+          });
+          bot.sendMessage(msg.chat.id, reply.trim());
         }
       }else{
         bot.sendMessage(msg.chat.id, '❌ 공실 목록을 가져오지 못했습니다.');
@@ -204,7 +212,15 @@ bot.on('message', async (msg) => {
       const res = await callGAS('getAllRoomStatus', {});
       const listData = Array.isArray(res) ? res : (res && res.data ? res.data : []);
 
-      const list = listData.filter(r => {
+      // 중복 호실 제거 (호실 번호 기준)
+      const uniqueRooms = new Map();
+      listData.forEach(r => {
+        if (!uniqueRooms.has(r.room)) {
+          uniqueRooms.set(r.room, r);
+        }
+      });
+      
+      const list = Array.from(uniqueRooms.values()).filter(r => {
         const val = parseFloat(r.settle)||0;
         return Math.abs(val) < threshold; //  절대값 기준, 음수도 포함
       });
@@ -235,7 +251,15 @@ bot.on('message', async (msg) => {
       const result = await callGAS('getAllRoomStatus', {});
       const listData = Array.isArray(result) ? result : (result && result.data ? result.data : []);
       if (Array.isArray(listData)) {
-        const list = listData.filter(r => (parseFloat(r.settle)||0) > 0);
+        // 중복 호실 제거
+        const uniqueRooms = new Map();
+        listData.forEach(r => {
+          if (!uniqueRooms.has(r.room)) {
+            uniqueRooms.set(r.room, r);
+          }
+        });
+        
+        const list = Array.from(uniqueRooms.values()).filter(r => (parseFloat(r.settle)||0) > 0);
         if(list.length === 0){
           bot.sendMessage(msg.chat.id, '모든 호실이 정산 완료되었습니다!');
         } else {
@@ -267,27 +291,27 @@ bot.on('message', async (msg) => {
 
         // 월별 표 작성 (이번 달까지)
         const headerRaw = result.header || [];
-        const billRaw   = result.billing || [];
+        const chargeRaw = result.charge || []; // billing 대신 charge 사용
         const payRaw    = result.payment || [];
 
         const todayYM = new Date().toISOString().slice(0,7); // YYYY-MM
         const header = [];
-        const bill   = [];
+        const charge = [];
         const pay    = [];
         headerRaw.forEach((m,i)=>{
           if(m <= todayYM){
             header.push(m);
-            bill.push(billRaw[i]||0);
+            charge.push(chargeRaw[i]||0); // charge 배열 사용
             pay.push(payRaw[i]||0);
           }
         });
 
         let tableStr = '\n월 | 청구 | 입금\n----------------';
         header.forEach((m,i)=>{
-          tableStr += `\n${m} | ${Number(bill[i]||0).toLocaleString()} | ${Number(pay[i]||0).toLocaleString()}`;
+          tableStr += `\n${m} | ${Number(charge[i]||0).toLocaleString()} | ${Number(pay[i]||0).toLocaleString()}`;
         });
 
-        const totalBill = bill.reduce((s,v)=>s+v,0);
+        const totalBill = charge.reduce((s,v)=>s+v,0); // charge 합계
         const totalPay  = pay.reduce((s,v)=>s+v,0);
         const remainNow = totalPay - totalBill;
 
