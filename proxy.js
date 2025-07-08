@@ -337,7 +337,9 @@ bot.on('message', async (msg) => {
 
         let reply = `🧾 ${room}호 퇴실 정산 요약\n`;
         reply += `입주: ${prof.moveIn ? prof.moveIn.toString().split('T')[0] : '-'}\n`;
-        reply += `퇴실: ${prof.moveOut ? prof.moveOut.toString().split('T')[0] : '-'}\n`;
+        // 퇴실일이 없으면 오늘 날짜 사용
+        const moveOutDate = prof.moveOut ? prof.moveOut.toString().split('T')[0] : new Date().toISOString().split('T')[0];
+        reply += `퇴실: ${moveOutDate}\n`;
         reply += `이름: ${prof.name || '-'}\n`;
         reply += `연락처: ${prof.contact || '-'}\n`;
         reply += `보증금: ${Number(prof.deposit||0).toLocaleString()}원\n`;
