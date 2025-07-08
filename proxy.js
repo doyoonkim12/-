@@ -380,7 +380,8 @@ bot.on('message', async (msg) => {
         
         if(pdfUrl && typeof pdfUrl === 'string'){
           console.log('📄 PDF URL:', pdfUrl);
-          bot.sendDocument(msg.chat.id, pdfUrl, { caption: `${room}호 퇴실정산 PDF` });
+          // 파일 직접 전송 대신 다운로드 링크 전송
+          bot.sendMessage(msg.chat.id, `✅ ${room}호 퇴실정산 PDF가 생성되었습니다.\n\n📎 다운로드 링크:\n${pdfUrl}`);
         } else {
           console.log('❌ PDF URL 형식 오류, 응답:', res);
           bot.sendMessage(msg.chat.id, `❌ PDF URL 형식 오류`);
