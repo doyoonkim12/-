@@ -366,17 +366,22 @@ bot.on('message', async (msg) => {
     const room = pdfMatch[1];
     const moveOut = pdfMatch[2] || null;
     const params = moveOut ? { room, moveOut } : { room };
+    console.log('📄 PDF 생성 요청:', params);
     try {
       const res = await callGAS('exportSettlementPdf', params);
-      const url = res && res.url ? res.url : (res.data || '');
-      if(url){
-        bot.sendDocument(msg.chat.id, url, { caption: `${room}호 퇴실정산 PDF` });
+      console.log('📄 GAS 응답:', res);
+      
+      if(res && res.success && res.url){
+        console.log('📄 PDF URL:', res.url);
+        bot.sendDocument(msg.chat.id, res.url, { caption: `${room}호 퇴실정산 PDF` });
       } else {
-        bot.sendMessage(msg.chat.id, '❌ PDF 생성 실패');
+        console.log('❌ PDF 생성 실패, 응답:', res);
+        const errorMsg = res && res.message ? res.message : '알 수 없는 오류';
+        bot.sendMessage(msg.chat.id, `❌ PDF 생성 실패: ${errorMsg}`);
       }
     } catch(err){
       console.error('PDF 오류:',err);
-      bot.sendMessage(msg.chat.id,'❌ PDF 생성 중 오류 발생');
+      bot.sendMessage(msg.chat.id,`❌ PDF 생성 중 오류 발생: ${err.message}`);
     }
     return;
   }
