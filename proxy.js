@@ -232,17 +232,28 @@ bot.on('message', async (msg) => {
       const res = await callGAS('getAllRoomStatus', {});
       const listData = Array.isArray(res) ? res : (res && res.data ? res.data : []);
 
-      // 중복 호실 제거 (호실 번호 기준)
-      const uniqueRooms = new Map();
-      listData.forEach(r => {
-        if (!uniqueRooms.has(r.room)) {
-          uniqueRooms.set(r.room, r);
+      // 1) 301~1606 호실만, 2) 연락처 있고, 3) 미납금>0 필터링
+      let filtered = listData.filter(i => {
+        const rn = parseInt(i.room, 10);
+        if (isNaN(rn) || rn < 301 || rn > 1606) return false;
+        if (!i.contact) return false;
+        if ((i.unpaid || 0) <= 0) return false;
+        return true;
+      });
+
+      // 중복 호실 제거: 미납금이 더 큰 항목 우선
+      const map = {};
+      filtered.forEach(it => {
+        if (!map[it.room] || (it.unpaid || 0) > (map[it.room].unpaid || 0)) {
+          map[it.room] = it;
         }
       });
-      
-      const list = Array.from(uniqueRooms.values()).filter(r => {
-        const val = parseFloat(r.settle)||0;
-        return Math.abs(val) < threshold; //  절대값 기준, 음수도 포함
+      filtered = Object.values(map);
+
+      // 4) 최대 정산금액 필터 (양수 기준). 음수(환급) 금액은 항상 포함
+      const list = filtered.filter(i => {
+        const st = i.settle || 0;
+        return st < 0 || st < threshold;
       });
 
       if (list.length === 0) {
