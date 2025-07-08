@@ -371,9 +371,20 @@ bot.on('message', async (msg) => {
       const res = await callGAS('exportSettlementPdf', params);
       console.log('📄 GAS 응답:', res);
       
-      if(res && res.success && res.url){
-        console.log('📄 PDF URL:', res.url);
-        bot.sendDocument(msg.chat.id, res.url, { caption: `${room}호 퇴실정산 PDF` });
+      if(res && res.success){
+        // 중첩된 응답 구조 처리
+        let pdfUrl = res.url;
+        if(typeof pdfUrl === 'object' && pdfUrl.url){
+          pdfUrl = pdfUrl.url;
+        }
+        
+        if(pdfUrl && typeof pdfUrl === 'string'){
+          console.log('📄 PDF URL:', pdfUrl);
+          bot.sendDocument(msg.chat.id, pdfUrl, { caption: `${room}호 퇴실정산 PDF` });
+        } else {
+          console.log('❌ PDF URL 형식 오류, 응답:', res);
+          bot.sendMessage(msg.chat.id, `❌ PDF URL 형식 오류`);
+        }
       } else {
         console.log('❌ PDF 생성 실패, 응답:', res);
         const errorMsg = res && res.message ? res.message : '알 수 없는 오류';
