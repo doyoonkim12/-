@@ -19,7 +19,133 @@ app.use((req, res, next) => {
 app.use(express.text({ type: 'text/plain' }));
 app.use(express.json());
 
+// 자동 전송 스케줄러
+const schedule = require('node-schedule');
+
+// 매일 오전 11시 - 오후 5시 할일 전송
+schedule.scheduleJob('0 11 * * *', async () => {
+  console.log('🕚 오전 11시 - 오후 5시 할일 자동 전송');
+  await sendDailyTodos();
+});
+
+// 매일 오전 12시 - 정산금액 50만원 미만 세대 요약
+schedule.scheduleJob('0 12 * * *', async () => {
+  console.log('🕛 오전 12시 - 정산금액 50만원 미만 세대 자동 전송');
+  await sendDailySettlement();
+});
+
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbw1iZg5NQNhuym7p1Ky7WUg6ffa7Pnn0LSVAuZL1mdDmpOgFlsnZuJbO-gLIXuv_BzwBA/exec';
+
+// 자동 전송 함수들
+async function sendDailyTodos() {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    
+    // 오늘과 내일 할일 조회
+    const todayTodos = await callGAS('getTodosByDate', { date: today });
+    const tomorrowTodos = await callGAS('getTodosByDate', { date: tomorrow });
+    
+    let message = '🕚 오전 11시 자동 알림\n\n';
+    message += '📅 오늘 할일:\n';
+    if (todayTodos.success && todayTodos.data.length > 0) {
+      todayTodos.data.forEach(todo => {
+        message += `□ ${todo.task}\n`;
+      });
+    } else {
+      message += '할일 없음\n';
+    }
+    
+    message += '\n📅 내일 할일:\n';
+    if (tomorrowTodos.success && tomorrowTodos.data.length > 0) {
+      tomorrowTodos.data.forEach(todo => {
+        message += `□ ${todo.task}\n`;
+      });
+    } else {
+      message += '할일 없음\n';
+    }
+    
+    // 오후 5시 할일 추가
+    message += '\n🕔 오후 5시 권장 할일:\n';
+    message += '□ 하루 입금 현황 확인\n';
+    message += '□ 미납 세대 연락\n';
+    message += '□ 내일 일정 점검\n';
+    
+    await bot.sendMessage(process.env.ADMIN_CHAT_ID || '5932676399', message);
+    console.log('✅ 할일 자동 전송 완료');
+  } catch (error) {
+    console.error('❌ 할일 자동 전송 실패:', error);
+  }
+}
+
+async function sendDailySettlement() {
+  try {
+    const res = await callGAS('getAllRoomStatus', {});
+    const listData = Array.isArray(res) ? res : (res && res.data ? res.data : []);
+
+    // 필터링: 301~1606 호실, 연락처 있음, 미납금>0
+    let filtered = listData.filter(i => {
+      const rn = parseInt(i.room, 10);
+      if (isNaN(rn) || rn < 301 || rn > 1606) return false;
+      if (!i.contact) return false;
+      if ((i.unpaid || 0) <= 0) return false;
+      return true;
+    });
+
+    // 중복 제거
+    const map = {};
+    filtered.forEach(it => {
+      if (!map[it.room] || (it.unpaid || 0) > (map[it.room].unpaid || 0)) {
+        map[it.room] = it;
+      }
+    });
+    filtered = Object.values(map);
+
+    // 정산금 50만원 미만 필터
+    const list = filtered.filter(i => {
+      const st = i.settle || 0;
+      return st < 0 || st < 500000;
+    });
+
+    let message = '🕛 오전 12시 자동 알림\n\n';
+    message += `📊 정산금 50만원 미만 세대 (${list.length}개)\n\n`;
+    
+    if (list.length === 0) {
+      message += '해당 세대가 없습니다! 🎉';
+    } else {
+      list.sort((a,b) => parseInt(a.room,10) - parseInt(b.room,10));
+      list.forEach(item => {
+        message += `${item.room}호 | ${item.name} | ${(item.settle||0).toLocaleString()}원\n`;
+      });
+      
+      const totalUnpaid = list.reduce((sum, item) => sum + (item.unpaid || 0), 0);
+      const totalSettle = list.reduce((sum, item) => sum + (item.settle || 0), 0);
+      message += `\n총 미납: ${totalUnpaid.toLocaleString()}원`;
+      message += `\n총 정산: ${totalSettle.toLocaleString()}원`;
+    }
+    
+    await bot.sendMessage(process.env.ADMIN_CHAT_ID || '5932676399', message);
+    console.log('✅ 정산 요약 자동 전송 완료');
+  } catch (error) {
+    console.error('❌ 정산 요약 자동 전송 실패:', error);
+  }
+}
+
+// 공용 GAS 호출 함수
+async function callGAS(func, params = {}) {
+  const res = await fetch(GAS_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ func, params })
+  });
+  const txt = await res.text();
+  try { 
+    return JSON.parse(txt); 
+  } catch(e) {
+    console.error('JSON 파싱 오류:', e, txt); 
+    return null; 
+  }
+}
 
 // Health check endpoint (서버 상태 확인용)
 app.get('/health', (req, res) => {
@@ -171,17 +297,7 @@ bot.on('message', async (msg) => {
   console.log('📱 텔레그램 메시지 수신:', textRaw);
   console.log('👤 발신자:', msg.from.username || msg.from.first_name);
 
-  // 공용 GAS 호출 유틸
-  const callGAS = async (func, params = {}) => {
-    const res   = await fetch(GAS_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ func, params })
-    });
-    const txt   = await res.text();
-    try { return JSON.parse(txt); } catch(e){
-      console.error('JSON 파싱 오류:', e, txt); return null; }
-  };
+  // 공용 GAS 호출 유틸 (기존 함수 재사용)
 
   // ===== 0) 공실 목록 =====
   if (/^공실$/i.test(text)) {
@@ -271,6 +387,69 @@ bot.on('message', async (msg) => {
       bot.sendMessage(msg.chat.id, reply);
     } catch(err){
       console.error('금액 필터 오류:', err);
+      bot.sendMessage(msg.chat.id, '❌ 오류: '+err.message);
+    }
+    return;
+  }
+
+  // ===== 1.5) 월별 상세 조회 (2025-07 형식) =====
+  const monthMatch = textRaw.match(/^(\d{4})-(\d{2})$/);
+  if (monthMatch) {
+    const yearMonth = monthMatch[0];
+    try {
+      const result = await callGAS('getMonthlyDetail', { month: yearMonth });
+      if(result && result.success){
+        const data = result.data || {};
+        let reply = `📊 ${yearMonth} 월별 상세 현황\n\n`;
+        
+        if(data.rooms && data.rooms.length > 0){
+          reply += '호실 | 이름 | 연락처 | 청구 | 입금 | 특이사항\n';
+          reply += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+          data.rooms.forEach(r => {
+            reply += `${r.room} | ${r.name||'-'} | ${r.contact||'-'} | ${Number(r.billing||0).toLocaleString()} | ${Number(r.payment||0).toLocaleString()} | ${r.remark||'-'}\n`;
+          });
+          reply += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+          reply += `💰 전체 청구합계: ${Number(data.totalBilling||0).toLocaleString()}원\n`;
+          reply += `💳 전체 입금합계: ${Number(data.totalPayment||0).toLocaleString()}원\n`;
+          reply += `📈 차액: ${Number((data.totalPayment||0)-(data.totalBilling||0)).toLocaleString()}원`;
+        } else {
+          reply += '해당 월 데이터가 없습니다.';
+        }
+        
+        bot.sendMessage(msg.chat.id, reply);
+      } else {
+        bot.sendMessage(msg.chat.id, result.message || '❌ 월별 데이터를 가져오지 못했습니다.');
+      }
+    } catch(err){
+      console.error('월별 조회 오류:', err);
+      bot.sendMessage(msg.chat.id, '❌ 오류: '+err.message);
+    }
+    return;
+  }
+
+  // ===== 1.6) 악성미납 조회 =====
+  if (/^악성미납$/i.test(text)) {
+    try {
+      const result = await callGAS('getBadDebtors', {});
+      if(result && result.success){
+        const list = result.data || [];
+        if(list.length === 0){
+          bot.sendMessage(msg.chat.id, '악성미납 세대가 없습니다! 🎉');
+        } else {
+          let reply = `⚠️ 악성미납 세대 (${list.length}개)\n`;
+          reply += '당월포함 전월까지 입금이 없는 세대\n\n';
+          reply += '호실 | 이름 | 연락처 | 입주일 | 정산금액 | 특이사항\n';
+          reply += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+          list.forEach(r => {
+            reply += `${r.room} | ${r.name||'-'} | ${r.contact||'-'} | ${r.moveIn||'-'} | ${Number(r.settle||0).toLocaleString()} | ${r.remark||'-'}\n`;
+          });
+          bot.sendMessage(msg.chat.id, reply);
+        }
+      } else {
+        bot.sendMessage(msg.chat.id, result.message || '❌ 악성미납 데이터를 가져오지 못했습니다.');
+      }
+    } catch(err){
+      console.error('악성미납 조회 오류:', err);
       bot.sendMessage(msg.chat.id, '❌ 오류: '+err.message);
     }
     return;
