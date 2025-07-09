@@ -417,8 +417,11 @@ bot.on('message', async (msg) => {
       let reply = `📋 정산금 ${threshold.toLocaleString()}원 미만 호실 (${list.length}개)\n`;
       reply += '\n호실 | 이름 | 연락처 | 미납 | 정산 | 특이사항';
       reply += '\n--------------------------------------------------------------';
+      
       list.forEach(r => {
-        reply += `\n${r.room} | ${r.name || '-'} | ${r.contact || '-'} | ${Number(r.unpaid||0).toLocaleString()} | ${Number(r.settle||0).toLocaleString()} | ${r.remark||'-'}`;
+        reply += `\n${r.room}호 | ${r.name || '-'} | ${r.contact || '-'}\n`;
+        reply += `총 청구내역 ${Number(r.unpaid||0).toLocaleString()} | 정산금액 ${Number(r.settle||0).toLocaleString()}\n`;
+        reply += `특이사항 : ${r.remark||'-'}\n`;
       });
 
       bot.sendMessage(msg.chat.id, reply);
