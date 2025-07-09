@@ -533,7 +533,23 @@ bot.on('message', async (msg) => {
     try {
       const result = await callGAS('getBadDebtors', {});
       if(result && result.success){
-        const list = result.data || [];
+        let list = result.data || [];
+        
+        // 중복 호실 제거 (호실 번호 기준)
+        const uniqueRooms = new Map();
+        list.forEach(room => {
+          if (!uniqueRooms.has(room.room)) {
+            uniqueRooms.set(room.room, room);
+          }
+        });
+        list = Array.from(uniqueRooms.values());
+        
+        // 공실 제거 (이름이 없거나 '-'인 경우)
+        list = list.filter(r => r.name && r.name.trim() !== '' && r.name !== '-');
+        
+        // 호실 번호순 정렬
+        list.sort((a, b) => parseInt(a.room, 10) - parseInt(b.room, 10));
+        
         if(list.length === 0){
           bot.sendMessage(msg.chat.id, '악성미납 세대가 없습니다! 🎉');
         } else {
@@ -545,7 +561,9 @@ bot.on('message', async (msg) => {
           reply += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
           
           list.forEach(r => {
-            reply += `${r.room} | ${r.name||'-'} | ${r.contact||'-'} | ${r.moveIn||'-'} | ${Number(r.settle||0).toLocaleString()} | ${r.remark||'-'}\n`;
+            const moveInDate = r.moveIn ? (r.moveIn.split('T')[0] || r.moveIn) : '-';
+            reply += `${r.room} | ${r.name||'-'} | ${r.contact||'-'}\n`;
+            reply += `입주일 : ${moveInDate} | 정산금액 : ${Number(r.settle||0).toLocaleString()} | 특이사항 : ${r.remark||'-'}\n`;
           });
           
           bot.sendMessage(msg.chat.id, reply);
