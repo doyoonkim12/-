@@ -562,8 +562,8 @@ bot.on('message', async (msg) => {
           
           list.forEach(r => {
             const moveInDate = r.moveIn ? (r.moveIn.split('T')[0] || r.moveIn) : '-';
-            reply += `${r.room} | ${r.name||'-'} | ${r.contact||'-'}\n`;
-            reply += `입주일 : ${moveInDate} | 정산금액 : ${Number(r.settle||0).toLocaleString()} | 특이사항 : ${r.remark||'-'}\n`;
+            reply += `${r.room}호 | ${r.name||'-'} | ${r.contact||'-'}\n`;
+            reply += `입주일 : ${moveInDate} | 정산금액 : ${Number(r.settle||0).toLocaleString()} | 특이사항 : ${r.remark||'-'}\n\n`;
           });
           
           bot.sendMessage(msg.chat.id, reply);
