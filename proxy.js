@@ -147,6 +147,43 @@ async function callGAS(func, params = {}) {
   }
 }
 
+// 긴 메시지를 안전하게 전송하는 함수
+async function sendLongMessage(chatId, message, maxLength = 4000) {
+  if (message.length <= maxLength) {
+    await bot.sendMessage(chatId, message);
+    return;
+  }
+  
+  // 메시지를 줄 단위로 나누어 전송
+  const lines = message.split('\n');
+  let currentChunk = '';
+  let chunkCount = 1;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const testChunk = currentChunk + (currentChunk ? '\n' : '') + line;
+    
+    if (testChunk.length > maxLength) {
+      // 현재 청크 전송
+      if (currentChunk) {
+        const header = chunkCount === 1 ? '' : `📄 계속... (${chunkCount})\n\n`;
+        await bot.sendMessage(chatId, header + currentChunk);
+        await new Promise(resolve => setTimeout(resolve, 500)); // 0.5초 대기
+        chunkCount++;
+      }
+      currentChunk = line;
+    } else {
+      currentChunk = testChunk;
+    }
+  }
+  
+  // 마지막 청크 전송
+  if (currentChunk) {
+    const header = chunkCount === 1 ? '' : `📄 계속... (${chunkCount})\n\n`;
+    await bot.sendMessage(chatId, header + currentChunk);
+  }
+}
+
 // Health check endpoint (서버 상태 확인용)
 app.get('/health', (req, res) => {
   res.json({ 
@@ -400,23 +437,45 @@ bot.on('message', async (msg) => {
       const result = await callGAS('getMonthlyDetail', { month: yearMonth });
       if(result && result.success){
         const data = result.data || {};
-        let reply = `📊 ${yearMonth} 월별 상세 현황\n\n`;
         
         if(data.rooms && data.rooms.length > 0){
-          reply += '호실 | 이름 | 연락처 | 청구 | 입금 | 특이사항\n';
-          reply += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
-          data.rooms.forEach(r => {
-            reply += `${r.room} | ${r.name||'-'} | ${r.contact||'-'} | ${Number(r.billing||0).toLocaleString()} | ${Number(r.payment||0).toLocaleString()} | ${r.remark||'-'}\n`;
-          });
-          reply += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
-          reply += `💰 전체 청구합계: ${Number(data.totalBilling||0).toLocaleString()}원\n`;
-          reply += `💳 전체 입금합계: ${Number(data.totalPayment||0).toLocaleString()}원\n`;
-          reply += `📈 차액: ${Number((data.totalPayment||0)-(data.totalBilling||0)).toLocaleString()}원`;
+          // 요약 메시지 먼저 전송
+          let summaryMsg = `📊 ${yearMonth} 월별 요약\n\n`;
+          summaryMsg += `📋 대상 세대: ${data.rooms.length}개\n`;
+          summaryMsg += `💰 전체 청구합계: ${Number(data.totalBilling||0).toLocaleString()}원\n`;
+          summaryMsg += `💳 전체 입금합계: ${Number(data.totalPayment||0).toLocaleString()}원\n`;
+          summaryMsg += `📈 차액: ${Number((data.totalPayment||0)-(data.totalBilling||0)).toLocaleString()}원\n\n`;
+          summaryMsg += `📋 상세 내역은 여러 메시지로 나누어 전송합니다...`;
+          
+          await bot.sendMessage(msg.chat.id, summaryMsg);
+          
+          // 상세 내역을 청크 단위로 나누어 전송
+          const chunkSize = 15; // 한 메시지당 15개 호실
+          const chunks = [];
+          
+          for(let i = 0; i < data.rooms.length; i += chunkSize) {
+            const chunk = data.rooms.slice(i, i + chunkSize);
+            let chunkMsg = `📋 ${yearMonth} 상세내역 (${Math.floor(i/chunkSize)+1}/${Math.ceil(data.rooms.length/chunkSize)})\n\n`;
+            chunkMsg += '호실 | 이름 | 청구 | 입금 | 차액\n';
+            chunkMsg += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+            
+            chunk.forEach(r => {
+              const diff = (r.payment||0) - (r.billing||0);
+              const diffStr = diff >= 0 ? `+${diff.toLocaleString()}` : diff.toLocaleString();
+              chunkMsg += `${r.room} | ${r.name||'-'} | ${Number(r.billing||0).toLocaleString()} | ${Number(r.payment||0).toLocaleString()} | ${diffStr}\n`;
+            });
+            
+            chunks.push(chunkMsg);
+          }
+          
+          // 각 청크를 0.5초 간격으로 전송
+          for(let i = 0; i < chunks.length; i++) {
+            await new Promise(resolve => setTimeout(resolve, 500)); // 0.5초 대기
+            await bot.sendMessage(msg.chat.id, chunks[i]);
+          }
         } else {
-          reply += '해당 월 데이터가 없습니다.';
+          await bot.sendMessage(msg.chat.id, `📊 ${yearMonth}\n\n해당 월 데이터가 없습니다.`);
         }
-        
-        bot.sendMessage(msg.chat.id, reply);
       } else {
         bot.sendMessage(msg.chat.id, result.message || '❌ 월별 데이터를 가져오지 못했습니다.');
       }
@@ -436,14 +495,31 @@ bot.on('message', async (msg) => {
         if(list.length === 0){
           bot.sendMessage(msg.chat.id, '악성미납 세대가 없습니다! 🎉');
         } else {
-          let reply = `⚠️ 악성미납 세대 (${list.length}개)\n`;
-          reply += '당월포함 전월까지 입금이 없는 세대\n\n';
-          reply += '호실 | 이름 | 연락처 | 입주일 | 정산금액 | 특이사항\n';
-          reply += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
-          list.forEach(r => {
-            reply += `${r.room} | ${r.name||'-'} | ${r.contact||'-'} | ${r.moveIn||'-'} | ${Number(r.settle||0).toLocaleString()} | ${r.remark||'-'}\n`;
-          });
-          bot.sendMessage(msg.chat.id, reply);
+          // 요약 메시지 먼저 전송
+          let summaryMsg = `⚠️ 악성미납 세대 요약\n\n`;
+          summaryMsg += `📋 대상 세대: ${list.length}개\n`;
+          summaryMsg += `📅 기준: 당월+전월 입금 없음\n`;
+          summaryMsg += `💰 총 정산금액: ${list.reduce((sum, r) => sum + (r.settle||0), 0).toLocaleString()}원\n\n`;
+          summaryMsg += `📋 상세 내역은 아래에 전송합니다...`;
+          
+          await bot.sendMessage(msg.chat.id, summaryMsg);
+          
+          // 상세 내역을 청크 단위로 나누어 전송
+          const chunkSize = 10; // 한 메시지당 10개 호실
+          
+          for(let i = 0; i < list.length; i += chunkSize) {
+            const chunk = list.slice(i, i + chunkSize);
+            let chunkMsg = `⚠️ 악성미납 상세내역 (${Math.floor(i/chunkSize)+1}/${Math.ceil(list.length/chunkSize)})\n\n`;
+            chunkMsg += '호실 | 이름 | 연락처 | 정산금액\n';
+            chunkMsg += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+            
+            chunk.forEach(r => {
+              chunkMsg += `${r.room} | ${r.name||'-'} | ${r.contact||'-'} | ${Number(r.settle||0).toLocaleString()}\n`;
+            });
+            
+            if(i > 0) await new Promise(resolve => setTimeout(resolve, 500)); // 0.5초 대기
+            await bot.sendMessage(msg.chat.id, chunkMsg);
+          }
         }
       } else {
         bot.sendMessage(msg.chat.id, result.message || '❌ 악성미납 데이터를 가져오지 못했습니다.');
