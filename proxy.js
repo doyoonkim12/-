@@ -3,7 +3,7 @@ const fetch = require('node-fetch'); // v2 사용
 const TelegramBot = require('node-telegram-bot-api');
 
 const TELEGRAM_BOT_TOKEN = '7415868957:AAFQSjPIu5FxNKpJ_unOs9-WpK4UcFHGHjY'; // 본인 토큰
-const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
+const bot = new TelegramBot(TELEGRAM_BOT_TOKEN); // WebHook 방식으로 변경
 
 const app = express();
 
@@ -237,9 +237,24 @@ app.get('/', (req, res) => {
   res.json({
     message: 'GAS Proxy Server with Telegram Bot',
     status: 'running',
-    endpoints: ['/api', '/health'],
-    bot: 'telegram bot active'
+    endpoints: ['/api', '/health', '/webhook'],
+    bot: 'telegram bot active (webhook mode)'
   });
+});
+
+// 텔레그램 WebHook 엔드포인트
+app.post('/webhook', (req, res) => {
+  try {
+    const update = req.body;
+    if (update && update.message) {
+      // 기존 bot.on('message') 로직을 여기서 직접 호출
+      handleTelegramMessage(update.message);
+    }
+    res.sendStatus(200);
+  } catch (error) {
+    console.error('WebHook 처리 오류:', error);
+    res.sendStatus(500);
+  }
 });
 
 // 프론트엔드 → GAS 프록시
@@ -368,8 +383,8 @@ function parseDepositMessage(msg){
 // 메시지 중복 처리 방지
 const processedMessages = new Set();
 
-// 텔레그램 → GAS 할일 추가 및 기타 명령
-bot.on('message', async (msg) => {
+// 텔레그램 메시지 처리 함수 (WebHook과 Polling 공용)
+async function handleTelegramMessage(msg) {
   // 중복 메시지 처리 방지
   const messageId = `${msg.chat.id}_${msg.message_id}`;
   if (processedMessages.has(messageId)) {
@@ -657,61 +672,47 @@ bot.on('message', async (msg) => {
     return;
   }
 
-  // ===== 2) 전체 미납 (전월까지 미납 + 오늘까지 정산) =====
+  // ===== 2) 전체 미납 (전월까지 총청구내역 vs 오늘까지 총입금액) =====
   if (/^전체\s*미납$/i.test(textRaw)) {
     try {
-      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-      const lastMonth = new Date();
-      lastMonth.setMonth(lastMonth.getMonth() - 1);
-      const lastMonthEnd = new Date(lastMonth.getFullYear(), lastMonth.getMonth() + 1, 0).toISOString().split('T')[0];
+      const today = new Date();
+      const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      const lastMonthEnd = new Date(lastMonth.getFullYear(), lastMonth.getMonth() + 1, 0);
+      const lastMonthStr = lastMonthEnd.toISOString().split('T')[0]; // YYYY-MM-DD
+      const todayStr = today.toISOString().split('T')[0];
       
-      console.log(`📅 전체미납 조회 - 미납금 기준: ${lastMonthEnd}, 정산금 기준: ${today}`);
+      console.log(`📅 전체미납 조회 - 청구기준: ${lastMonthStr}, 입금기준: ${todayStr}`);
       
-      const result = await callGAS('getAllRoomStatus', { 
-        asOfDate: today,
-        unpaidAsOfDate: lastMonthEnd 
+      // 새로운 함수 호출: 전월말까지 총청구내역 vs 오늘까지 총입금액
+      const result = await callGAS('getUnpaidRooms', {
+        unpaidAsOfDate: lastMonthStr,    // 청구내역 기준일 (전월말)
+        paymentAsOfDate: todayStr        // 입금내역 기준일 (오늘)
       });
-      const listData = Array.isArray(result) ? result : (result && result.data ? result.data : []);
-      if (Array.isArray(listData)) {
-        // 중복 호실 제거
-        const uniqueRooms = new Map();
-        listData.forEach(r => {
-          if (!uniqueRooms.has(r.room)) {
-            uniqueRooms.set(r.room, r);
-          }
+      
+      if (!result || !result.success) {
+        bot.sendMessage(msg.chat.id, '❌ 미납 데이터를 가져오지 못했습니다.');
+        return;
+      }
+      
+      const unpaidRooms = result.data || [];
+      
+      if (unpaidRooms.length === 0) {
+        bot.sendMessage(msg.chat.id, '✅ 모든 호실이 정산 완료되었습니다!');
+      } else {
+        let reply = `📊 전체 미납/정산 현황 (${unpaidRooms.length}개)\n`;
+        reply += `청구내역: ${lastMonthStr}까지 누적\n`;
+        reply += `입금내역: ${todayStr}까지 누적\n\n`;
+        reply += '호실 | 미납 | 정산\n----------------------';
+        
+        unpaidRooms.forEach(r => {
+          reply += `\n${r.room} | ${r.unpaidAmount.toLocaleString()} | ${r.currentSettle.toLocaleString()}`;
         });
         
-        // 전월말 기준 미납금이 있고, 정산금이 양수인 호실만 필터링
-        const list = Array.from(uniqueRooms.values()).filter(r => {
-          const unpaid = parseFloat(r.unpaid || 0);
-          const settle = parseFloat(r.settle || 0);
-          return unpaid > 0 && settle > 0;  // 전월말 미납금 > 0 AND 정산금 > 0
-        });
-        if(list.length === 0){
-          bot.sendMessage(msg.chat.id, '모든 호실이 정산 완료되었습니다!');
-        } else {
-          let reply = `📊 전체 미납/정산 현황 (${list.length}개)\n`;
-          reply += `미납금: 전월말(${lastMonthEnd})까지 기준\n`;
-          reply += `정산금: 오늘(${today})까지 기준\n\n`;
-          reply += '호실 | 미납 | 정산\n----------------------';
-          list.forEach(r=>{
-            // 1달미만 체크
-            const moveInDate = r.moveIn ? new Date(r.moveIn) : null;
-            const oneMonthAgo = new Date();
-            oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-            const isNewResident = moveInDate && moveInDate > oneMonthAgo;
-            const roomDisplay = isNewResident ? `${r.room}(1달미만)` : r.room;
-            
-            reply += `\n${roomDisplay} | ${Number(r.unpaid||0).toLocaleString()} | ${Number(r.settle||0).toLocaleString()}`;
-          });
-          bot.sendMessage(msg.chat.id, reply);
-        }
-      }else{
-        bot.sendMessage(msg.chat.id, '❌ 전체 미납 데이터를 가져오지 못했습니다.');
+        bot.sendMessage(msg.chat.id, reply);
       }
-    }catch(err){
+    } catch(err) {
       console.error('전체 미납 오류:', err);
-      bot.sendMessage(msg.chat.id, '❌ 오류: '+err.message);
+      bot.sendMessage(msg.chat.id, '❌ 오류: ' + err.message);
     }
     return;
   }
@@ -949,22 +950,35 @@ bot.on('message', async (msg) => {
   } else {
     bot.sendMessage(msg.chat.id, `❌ 메시지 형식이 올바르지 않습니다.\n\n✅ 올바른 형식:\n• 7/20 할일내용\n• 7월20일 할일내용\n• 0720 할일내용\n\n예: 7/20 804호 월세 받기`);
   }
-});
+}
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Proxy running on port ${PORT}`);
-  console.log('Telegram Bot is active and ready!');
   
-  // Self-ping to keep server alive (Render.com 무료 플랜용)
+  // WebHook 설정 (Production 환경에서만)
   if (process.env.NODE_ENV === 'production') {
     const RENDER_URL = process.env.RENDER_EXTERNAL_URL || 'https://weoldeumereudiang.onrender.com';
+    const webhookUrl = `${RENDER_URL}/webhook`;
     
+    try {
+      await bot.setWebHook(webhookUrl);
+      console.log('✅ Telegram WebHook 설정 완료:', webhookUrl);
+      console.log('Telegram Bot is active and ready! (WebHook mode)');
+    } catch (error) {
+      console.error('❌ WebHook 설정 실패:', error);
+      console.log('Telegram Bot fallback to polling mode');
+    }
+    
+    // Self-ping to keep server alive (Render.com 무료 플랜용)
     setInterval(() => {
       fetch(`${RENDER_URL}/health`)
         .then(res => res.json())
         .then(data => console.log('🏥 Health check:', data.timestamp))
         .catch(err => console.log('❌ Health check failed:', err.message));
     }, 14 * 60 * 1000); // 14분마다 (Render.com 15분 제한 회피)
+  } else {
+    // 개발 환경에서는 Polling 모드 사용
+    console.log('Telegram Bot is active and ready! (Development mode)');
   }
 }); 
