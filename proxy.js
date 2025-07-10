@@ -591,11 +591,16 @@ bot.on('message', async (msg) => {
     return;
   }
 
-  // ===== 1.6) 악성미납 조회 =====
+  // ===== 1.6) 악성미납 조회 (2개월 입금없음 OR 정산금 30만원 미만) =====
   if (/^악성미납$/i.test(text)) {
     try {
       const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-      const result = await callGAS('getBadDebtors', { asOfDate: today });
+      console.log(`📅 악성미납 조회 - 기준일: ${today}`);
+      
+      const result = await callGAS('getBadDebtors', { 
+        asOfDate: today,
+        settlementThreshold: 300000 // 30만원 미만 기준
+      });
       if(result && result.success){
         let list = result.data || [];
         
@@ -619,15 +624,23 @@ bot.on('message', async (msg) => {
         } else {
           // 한 번에 모든 내용 전송 (악성미납은 개수가 적음)
           let reply = `⚠️ 악성미납 세대 (${list.length}개)\n`;
-          reply += '당월포함 전월까지 입금이 없는 세대\n\n';
+          reply += '2개월 입금없음 또는 정산금 30만원 미만(마이너스 포함)\n\n';
           reply += `💰 총 정산금액: ${list.reduce((sum, r) => sum + (r.settle||0), 0).toLocaleString()}원\n\n`;
           reply += '호실 | 이름 | 연락처 | 입주일 | 정산금액 | 특이사항\n';
           reply += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
           
           list.forEach(r => {
-            const moveInDate = r.moveIn ? (r.moveIn.split('T')[0] || r.moveIn) : '-';
-            reply += `${r.room}호 | ${r.name||'-'} | ${r.contact||'-'}\n`;
-            reply += `입주일 : ${moveInDate} | 정산금액 : ${Number(r.settle||0).toLocaleString()} | 특이사항 : ${r.remark||'-'}\n\n`;
+            // 1달미만 체크
+            const moveInDate = r.moveIn ? new Date(r.moveIn) : null;
+            const oneMonthAgo = new Date();
+            oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+            const isNewResident = moveInDate && moveInDate > oneMonthAgo;
+            
+            const moveInDateStr = r.moveIn ? (r.moveIn.split('T')[0] || r.moveIn) : '-';
+            const roomDisplay = isNewResident ? `${r.room}호(1달미만)` : `${r.room}호`;
+            
+            reply += `${roomDisplay} | ${r.name||'-'} | ${r.contact||'-'}\n`;
+            reply += `입주일 : ${moveInDateStr} | 정산금액 : ${Number(r.settle||0).toLocaleString()} | 특이사항 : ${r.remark||'-'}\n\n`;
           });
           
           bot.sendMessage(msg.chat.id, reply);
@@ -642,11 +655,20 @@ bot.on('message', async (msg) => {
     return;
   }
 
-  // ===== 2) 전체 미납 (정산금 포함) =====
+  // ===== 2) 전체 미납 (전월까지 미납 + 오늘까지 정산) =====
   if (/^전체\s*미납$/i.test(textRaw)) {
     try {
       const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-      const result = await callGAS('getAllRoomStatus', { asOfDate: today });
+      const lastMonth = new Date();
+      lastMonth.setMonth(lastMonth.getMonth() - 1);
+      const lastMonthEnd = new Date(lastMonth.getFullYear(), lastMonth.getMonth() + 1, 0).toISOString().split('T')[0];
+      
+      console.log(`📅 전체미납 조회 - 미납금 기준: ${lastMonthEnd}, 정산금 기준: ${today}`);
+      
+      const result = await callGAS('getAllRoomStatus', { 
+        asOfDate: today,
+        unpaidAsOfDate: lastMonthEnd 
+      });
       const listData = Array.isArray(result) ? result : (result && result.data ? result.data : []);
       if (Array.isArray(listData)) {
         // 중복 호실 제거
@@ -662,9 +684,18 @@ bot.on('message', async (msg) => {
           bot.sendMessage(msg.chat.id, '모든 호실이 정산 완료되었습니다!');
         } else {
           let reply = `📊 전체 미납/정산 현황 (${list.length}개)\n`;
-          reply += '\n호실 | 미납 | 정산\n----------------------';
+          reply += `미납금: 전월말(${lastMonthEnd})까지 기준\n`;
+          reply += `정산금: 오늘(${today})까지 기준\n\n`;
+          reply += '호실 | 미납 | 정산\n----------------------';
           list.forEach(r=>{
-            reply += `\n${r.room} | ${Number(r.unpaid||0).toLocaleString()} | ${Number(r.settle||0).toLocaleString()}`;
+            // 1달미만 체크
+            const moveInDate = r.moveIn ? new Date(r.moveIn) : null;
+            const oneMonthAgo = new Date();
+            oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+            const isNewResident = moveInDate && moveInDate > oneMonthAgo;
+            const roomDisplay = isNewResident ? `${r.room}(1달미만)` : r.room;
+            
+            reply += `\n${roomDisplay} | ${Number(r.unpaid||0).toLocaleString()} | ${Number(r.settle||0).toLocaleString()}`;
           });
           bot.sendMessage(msg.chat.id, reply);
         }
@@ -853,7 +884,23 @@ bot.on('message', async (msg) => {
       let ok=false,msgRes='';
       try{ const j=JSON.parse(txt); ok=j.success; msgRes=j.message||''; }catch(e){}
       if(ok){
-        bot.sendMessage(msg.chat.id, `✅ ${dep.room}호 ₩${dep.amount.toLocaleString()} 입금 등록 완료!`);
+        // 응답에서 입주일 정보 확인하여 1달미만 체크
+        let roomDisplay = dep.room + '호';
+        try {
+          const jsonRes = JSON.parse(txt);
+          if (jsonRes.moveIn) {
+            const moveInDate = new Date(jsonRes.moveIn);
+            const oneMonthAgo = new Date();
+            oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+            if (moveInDate > oneMonthAgo) {
+              roomDisplay = dep.room + '호(1달미만)';
+            }
+          }
+        } catch(e) {
+          // 파싱 실패 시 기본 표시
+        }
+        
+        bot.sendMessage(msg.chat.id, `✅ ${roomDisplay} ₩${dep.amount.toLocaleString()} 입금 등록 완료!`);
       }else{
         bot.sendMessage(msg.chat.id, `❌ 등록 실패: ${msgRes||'오류'}`);
       }
