@@ -49,6 +49,12 @@ schedule.scheduleJob('*/10 * * * *', () => {
 schedule.scheduleJob('* * * * *', async () => {
   const now = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
   const minute = new Date().getMinutes();
+  const second = new Date().getSeconds();
+  
+  // 매 분 0초에 현재 시간 로그
+  if (second === 0) {
+    console.log(`🕐 [${now}] 현재 시간 - 분: ${minute}`);
+  }
   
   // 11분에 할일 테스트
   if (minute === 11) {
@@ -60,6 +66,15 @@ schedule.scheduleJob('* * * * *', async () => {
   if (minute === 12) {
     console.log(`🧪 [${now}] 테스트: 정산 자동 전송`);
     await sendDailySettlement();
+  }
+  
+  // 13분에 즉시 테스트 (개발용)
+  if (minute === 13) {
+    console.log(`🚀 [${now}] 즉시 테스트: 할일 + 정산 자동 전송`);
+    await sendDailyTodos();
+    setTimeout(async () => {
+      await sendDailySettlement();
+    }, 3000); // 3초 후 정산 전송
   }
 });
 
@@ -109,7 +124,8 @@ async function sendDailyTodos() {
 
 async function sendDailySettlement() {
   try {
-    const res = await callGAS('getAllRoomStatus', {});
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const res = await callGAS('getAllRoomStatus', { asOfDate: today });
     const listData = Array.isArray(res) ? res : (res && res.data ? res.data : []);
 
     // 필터링: 301~1606 호실, 연락처 있음, 미납금>0
@@ -411,7 +427,8 @@ bot.on('message', async (msg) => {
         return;
       }
 
-      const res = await callGAS('getAllRoomStatus', {});
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      const res = await callGAS('getAllRoomStatus', { asOfDate: today });
       const listData = Array.isArray(res) ? res : (res && res.data ? res.data : []);
 
       // 1) 301~1606 호실만, 2) 연락처 있고, 3) 미납금>0 필터링
@@ -613,7 +630,8 @@ bot.on('message', async (msg) => {
   // ===== 2) 전체 미납 (정산금 포함) =====
   if (/^전체\s*미납$/i.test(textRaw)) {
     try {
-      const result = await callGAS('getAllRoomStatus', {});
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      const result = await callGAS('getAllRoomStatus', { asOfDate: today });
       const listData = Array.isArray(result) ? result : (result && result.data ? result.data : []);
       if (Array.isArray(listData)) {
         // 중복 호실 제거
@@ -649,7 +667,8 @@ bot.on('message', async (msg) => {
   if (/^\d{3,4}(호)?$/.test(text)) {
     const room = text.replace(/호$/,'');
     try {
-      const result = await callGAS('getSettlementSummary', { room });
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      const result = await callGAS('getSettlementSummary', { room, asOfDate: today });
       if(result && result.success){
         const prof = result.profile || {};
         const remain = (result.remain||0).toLocaleString();
