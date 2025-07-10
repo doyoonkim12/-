@@ -586,12 +586,6 @@ async function handleTelegramMessage(msg) {
               floorMsg += `${r.room} | ${r.name||'-'} | ${Number(r.billing||0).toLocaleString()} | ${Number(r.payment||0).toLocaleString()} | ${diffStr}\n`;
             });
             
-            // 층별 소계
-            const floorBilling = group.rooms.reduce((sum, r) => sum + (r.billing || 0), 0);
-            const floorPayment = group.rooms.reduce((sum, r) => sum + (r.payment || 0), 0);
-            floorMsg += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
-            floorMsg += `소계: ${floorBilling.toLocaleString()} | ${floorPayment.toLocaleString()} | ${(floorPayment - floorBilling).toLocaleString()}`;
-            
             if(i > 0) await new Promise(resolve => setTimeout(resolve, 1000)); // 1초 대기
             await bot.sendMessage(msg.chat.id, floorMsg);
           }
@@ -672,93 +666,45 @@ async function handleTelegramMessage(msg) {
     return;
   }
 
-  // ===== 2) 전체 미납 (전월까지 총청구내역 vs 오늘까지 총입금액) =====
+  // ===== 2) 전체 미납 (기존 방식) =====
   if (/^전체\s*미납$/i.test(textRaw)) {
     try {
-      const today = new Date();
-      
-      // 더 명확한 전월말 계산
-      const currentYear = today.getFullYear();
-      const currentMonth = today.getMonth(); // 0-based (7월 = 6)
-      
-      // 전월 계산
-      let lastMonthYear = currentYear;
-      let lastMonthIdx = currentMonth - 1;
-      
-      if (lastMonthIdx < 0) {
-        lastMonthYear--;
-        lastMonthIdx = 11; // 12월
-      }
-      
-      // 전월의 마지막 날 계산
-      const lastMonthEnd = new Date(lastMonthYear, lastMonthIdx + 1, 0);
-      const lastMonthStr = `${lastMonthEnd.getFullYear()}-${String(lastMonthEnd.getMonth() + 1).padStart(2, '0')}-${String(lastMonthEnd.getDate()).padStart(2, '0')}`;
-      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-      
-      console.log(`📅 전체미납 조회 - 청구기준: ${lastMonthStr}, 입금기준: ${todayStr}`);
-      
-      // 새로운 함수 호출: 전월말까지 총청구내역 vs 오늘까지 총입금액
-      const result = await callGAS('getUnpaidRooms', {
-        unpaidAsOfDate: lastMonthStr,    // 청구내역 기준일 (전월말)
-        paymentAsOfDate: todayStr        // 입금내역 기준일 (오늘)
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      const res = await callGAS('getAllRoomStatus', { asOfDate: today });
+      const listData = Array.isArray(res) ? res : (res && res.data ? res.data : []);
+
+      // 필터링: 301~1606 호실, 연락처 있음, 정산금 > 0
+      let filtered = listData.filter(i => {
+        const rn = parseInt(i.room, 10);
+        if (isNaN(rn) || rn < 301 || rn > 1606) return false;
+        if (!i.contact) return false;
+        const settle = parseFloat(i.settle || 0);
+        return settle > 0; // 정산금이 양수인 호실만
       });
-      
-      console.log('🔍 getUnpaidRooms 결과:', result);
-      
-      if (!result || !result.success) {
-        console.log('❌ getUnpaidRooms 실패:', result?.message || '알 수 없는 오류');
-        bot.sendMessage(msg.chat.id, '❌ 미납 데이터를 가져오지 못했습니다.');
+
+      // 중복 호실 제거
+      const uniqueRooms = new Map();
+      filtered.forEach(room => {
+        if (!uniqueRooms.has(room.room)) {
+          uniqueRooms.set(room.room, room);
+        }
+      });
+      const uniqueFiltered = Array.from(uniqueRooms.values());
+
+      if (uniqueFiltered.length === 0) {
+        bot.sendMessage(msg.chat.id, '✅ 모든 호실이 정산 완료되었습니다!');
         return;
       }
+
+      let reply = `📊 전체 미납/정산 현황 (${uniqueFiltered.length}개)\n\n`;
+      reply += '호실 | 미납 | 정산\n----------------------';
       
-      const unpaidRooms = result.data || [];
-      console.log(`📊 미납 호실 개수: ${unpaidRooms.length}개`);
-      
-      if (unpaidRooms.length === 0) {
-        // 혹시 새로운 함수가 제대로 작동하지 않을 경우를 대비해 기존 방식으로 재시도
-        console.log('⚠️ 새로운 함수에서 0개 결과. 기존 방식으로 재시도...');
-        
-        try {
-          const fallbackResult = await callGAS('getAllRoomStatus', {});
-          const fallbackRooms = Array.isArray(fallbackResult) ? fallbackResult : (fallbackResult?.data || []);
-          
-          const fallbackFiltered = fallbackRooms.filter(r => {
-            const settle = parseFloat(r.settle || 0);
-            return settle > 0; // 정산금이 양수인 호실만
-          });
-          
-          console.log(`🔄 기존 방식 결과: ${fallbackFiltered.length}개`);
-          
-          if (fallbackFiltered.length > 0) {
-            let reply = `📊 전체 미납/정산 현황 (${fallbackFiltered.length}개)\n`;
-            reply += `⚠️ 기존 방식으로 조회됨\n\n`;
-            reply += '호실 | 미납 | 정산\n----------------------';
-            
-            fallbackFiltered.sort((a, b) => parseInt(a.room, 10) - parseInt(b.room, 10));
-            fallbackFiltered.forEach(r => {
-              reply += `\n${r.room} | ${Number(r.unpaid||0).toLocaleString()} | ${Number(r.settle||0).toLocaleString()}`;
-            });
-            
-            bot.sendMessage(msg.chat.id, reply);
-            return;
-          }
-        } catch (fallbackError) {
-          console.error('🔄 기존 방식도 실패:', fallbackError);
-        }
-        
-        bot.sendMessage(msg.chat.id, '✅ 모든 호실이 정산 완료되었습니다!');
-      } else {
-        let reply = `📊 전체 미납/정산 현황 (${unpaidRooms.length}개)\n`;
-        reply += `청구내역: ${lastMonthStr}까지 누적\n`;
-        reply += `입금내역: ${todayStr}까지 누적\n\n`;
-        reply += '호실 | 미납 | 정산\n----------------------';
-        
-        unpaidRooms.forEach(r => {
-          reply += `\n${r.room} | ${r.unpaidAmount.toLocaleString()} | ${r.currentSettle.toLocaleString()}`;
-        });
-        
-        bot.sendMessage(msg.chat.id, reply);
-      }
+      uniqueFiltered.sort((a, b) => parseInt(a.room, 10) - parseInt(b.room, 10));
+      uniqueFiltered.forEach(r => {
+        reply += `\n${r.room} | ${Number(r.unpaid||0).toLocaleString()} | ${Number(r.settle||0).toLocaleString()}`;
+      });
+
+      bot.sendMessage(msg.chat.id, reply);
     } catch(err) {
       console.error('전체 미납 오류:', err);
       bot.sendMessage(msg.chat.id, '❌ 오류: ' + err.message);
