@@ -676,10 +676,24 @@ async function handleTelegramMessage(msg) {
   if (/^전체\s*미납$/i.test(textRaw)) {
     try {
       const today = new Date();
-      const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-      const lastMonthEnd = new Date(lastMonth.getFullYear(), lastMonth.getMonth() + 1, 0);
-      const lastMonthStr = lastMonthEnd.toISOString().split('T')[0]; // YYYY-MM-DD
-      const todayStr = today.toISOString().split('T')[0];
+      
+      // 더 명확한 전월말 계산
+      const currentYear = today.getFullYear();
+      const currentMonth = today.getMonth(); // 0-based (7월 = 6)
+      
+      // 전월 계산
+      let lastMonthYear = currentYear;
+      let lastMonthIdx = currentMonth - 1;
+      
+      if (lastMonthIdx < 0) {
+        lastMonthYear--;
+        lastMonthIdx = 11; // 12월
+      }
+      
+      // 전월의 마지막 날 계산
+      const lastMonthEnd = new Date(lastMonthYear, lastMonthIdx + 1, 0);
+      const lastMonthStr = `${lastMonthEnd.getFullYear()}-${String(lastMonthEnd.getMonth() + 1).padStart(2, '0')}-${String(lastMonthEnd.getDate()).padStart(2, '0')}`;
+      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
       
       console.log(`📅 전체미납 조회 - 청구기준: ${lastMonthStr}, 입금기준: ${todayStr}`);
       
@@ -689,14 +703,49 @@ async function handleTelegramMessage(msg) {
         paymentAsOfDate: todayStr        // 입금내역 기준일 (오늘)
       });
       
+      console.log('🔍 getUnpaidRooms 결과:', result);
+      
       if (!result || !result.success) {
+        console.log('❌ getUnpaidRooms 실패:', result?.message || '알 수 없는 오류');
         bot.sendMessage(msg.chat.id, '❌ 미납 데이터를 가져오지 못했습니다.');
         return;
       }
       
       const unpaidRooms = result.data || [];
+      console.log(`📊 미납 호실 개수: ${unpaidRooms.length}개`);
       
       if (unpaidRooms.length === 0) {
+        // 혹시 새로운 함수가 제대로 작동하지 않을 경우를 대비해 기존 방식으로 재시도
+        console.log('⚠️ 새로운 함수에서 0개 결과. 기존 방식으로 재시도...');
+        
+        try {
+          const fallbackResult = await callGAS('getAllRoomStatus', {});
+          const fallbackRooms = Array.isArray(fallbackResult) ? fallbackResult : (fallbackResult?.data || []);
+          
+          const fallbackFiltered = fallbackRooms.filter(r => {
+            const settle = parseFloat(r.settle || 0);
+            return settle > 0; // 정산금이 양수인 호실만
+          });
+          
+          console.log(`🔄 기존 방식 결과: ${fallbackFiltered.length}개`);
+          
+          if (fallbackFiltered.length > 0) {
+            let reply = `📊 전체 미납/정산 현황 (${fallbackFiltered.length}개)\n`;
+            reply += `⚠️ 기존 방식으로 조회됨\n\n`;
+            reply += '호실 | 미납 | 정산\n----------------------';
+            
+            fallbackFiltered.sort((a, b) => parseInt(a.room, 10) - parseInt(b.room, 10));
+            fallbackFiltered.forEach(r => {
+              reply += `\n${r.room} | ${Number(r.unpaid||0).toLocaleString()} | ${Number(r.settle||0).toLocaleString()}`;
+            });
+            
+            bot.sendMessage(msg.chat.id, reply);
+            return;
+          }
+        } catch (fallbackError) {
+          console.error('🔄 기존 방식도 실패:', fallbackError);
+        }
+        
         bot.sendMessage(msg.chat.id, '✅ 모든 호실이 정산 완료되었습니다!');
       } else {
         let reply = `📊 전체 미납/정산 현황 (${unpaidRooms.length}개)\n`;
@@ -967,7 +1016,17 @@ app.listen(PORT, async () => {
       console.log('Telegram Bot is active and ready! (WebHook mode)');
     } catch (error) {
       console.error('❌ WebHook 설정 실패:', error);
-      console.log('Telegram Bot fallback to polling mode');
+      console.log('🔄 Polling 백업 모드로 전환...');
+      
+      // WebHook 실패 시 Polling 모드로 백업
+      try {
+        await bot.deleteWebHook();
+        bot.startPolling();
+        bot.on('message', handleTelegramMessage);
+        console.log('✅ Polling 백업 모드 활성화');
+      } catch (pollingError) {
+        console.error('❌ Polling 백업 모드도 실패:', pollingError);
+      }
     }
     
     // Self-ping to keep server alive (Render.com 무료 플랜용)
@@ -979,6 +1038,8 @@ app.listen(PORT, async () => {
     }, 14 * 60 * 1000); // 14분마다 (Render.com 15분 제한 회피)
   } else {
     // 개발 환경에서는 Polling 모드 사용
-    console.log('Telegram Bot is active and ready! (Development mode)');
+    bot.startPolling();
+    bot.on('message', handleTelegramMessage);
+    console.log('Telegram Bot is active and ready! (Development mode - Polling)');
   }
 }); 
