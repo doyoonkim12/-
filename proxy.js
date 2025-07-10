@@ -45,8 +45,7 @@ schedule.scheduleJob('*/10 * * * *', () => {
   console.log(`⏰ [${now}] 스케줄러 작동 중...`);
 });
 
-// 테스트용 스케줄러 (매 분마다) - 일시적으로 비활성화
-/*
+// 테스트용 스케줄러 (매 분마다) - 채팅 ID 수정 후 재활성화
 schedule.scheduleJob('* * * * *', async () => {
   const now = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
   const minute = new Date().getMinutes();
@@ -57,28 +56,18 @@ schedule.scheduleJob('* * * * *', async () => {
     console.log(`🕐 [${now}] 현재 시간 - 분: ${minute}`);
   }
   
-  // 11분에 할일 테스트
-  if (minute === 11) {
+  // 15분에 할일 테스트 (시간 변경)
+  if (minute === 15) {
     console.log(`🧪 [${now}] 테스트: 할일 자동 전송`);
     await sendDailyTodos();
   }
   
-  // 12분에 정산 테스트
-  if (minute === 12) {
+  // 16분에 정산 테스트 (시간 변경)
+  if (minute === 16) {
     console.log(`🧪 [${now}] 테스트: 정산 자동 전송`);
     await sendDailySettlement();
   }
-  
-  // 13분에 즉시 테스트 (개발용)
-  if (minute === 13) {
-    console.log(`🚀 [${now}] 즉시 테스트: 할일 + 정산 자동 전송`);
-    await sendDailyTodos();
-    setTimeout(async () => {
-      await sendDailySettlement();
-    }, 3000); // 3초 후 정산 전송
-  }
 });
-*/
 
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbw1iZg5NQNhuym7p1Ky7WUg6ffa7Pnn0LSVAuZL1mdDmpOgFlsnZuJbO-gLIXuv_BzwBA/exec';
 
@@ -117,7 +106,7 @@ async function sendDailyTodos() {
     message += '□ 미납 세대 연락\n';
     message += '□ 내일 일정 점검\n';
     
-    await bot.sendMessage(process.env.ADMIN_CHAT_ID || '5932676399', message);
+    await bot.sendMessage(process.env.ADMIN_CHAT_ID || '-4893061553', message);
     console.log('✅ 할일 자동 전송 완료');
   } catch (error) {
     console.error('❌ 할일 자동 전송 실패:', error);
@@ -171,7 +160,7 @@ async function sendDailySettlement() {
       message += `\n총 정산: ${totalSettle.toLocaleString()}원`;
     }
     
-    await bot.sendMessage(process.env.ADMIN_CHAT_ID || '5932676399', message);
+    await bot.sendMessage(process.env.ADMIN_CHAT_ID || '-4893061553', message);
     console.log('✅ 정산 요약 자동 전송 완료');
   } catch (error) {
     console.error('❌ 정산 요약 자동 전송 실패:', error);
@@ -374,8 +363,24 @@ function parseDepositMessage(msg){
   }catch(e){ console.error('parseDepositMessage 오류',e); return null; }
 }
 
+// 메시지 중복 처리 방지
+const processedMessages = new Set();
+
 // 텔레그램 → GAS 할일 추가 및 기타 명령
 bot.on('message', async (msg) => {
+  // 중복 메시지 처리 방지
+  const messageId = `${msg.chat.id}_${msg.message_id}`;
+  if (processedMessages.has(messageId)) {
+    console.log('⚠️ 중복 메시지 무시:', messageId);
+    return;
+  }
+  processedMessages.add(messageId);
+  
+  // 5분 후 메시지 ID 제거 (메모리 누수 방지)
+  setTimeout(() => {
+    processedMessages.delete(messageId);
+  }, 5 * 60 * 1000);
+  
   const textRaw = (msg.text || '').trim();
   const text    = textRaw.replace(/\s+/g, ''); // 공백 제거 버전
   console.log('📱 텔레그램 메시지 수신:', textRaw);
@@ -678,7 +683,9 @@ bot.on('message', async (msg) => {
     const room = text.replace(/호$/,'');
     try {
       const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      console.log(`🔍 [${room}호] 퇴실정산 요청 - 기준일: ${today}`);
       const result = await callGAS('getSettlementSummary', { room, asOfDate: today });
+      console.log(`📊 [${room}호] GAS 응답:`, result);
       if(result && result.success){
         const prof = result.profile || {};
         const remain = (result.remain||0).toLocaleString();
@@ -689,6 +696,9 @@ bot.on('message', async (msg) => {
         const payRaw    = result.payment || [];
 
         const todayYM = new Date().toISOString().slice(0,7); // YYYY-MM
+        const todayFull = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+        console.log(`📅 [${room}호] 오늘 날짜: ${todayFull}, 오늘 년월: ${todayYM}`);
+        
         const header = [];
         const charge = [];
         const pay    = [];
@@ -697,6 +707,7 @@ bot.on('message', async (msg) => {
             header.push(m);
             charge.push(chargeRaw[i]||0); // charge 배열 사용
             pay.push(payRaw[i]||0);
+            console.log(`📊 [${room}호] ${m}: 청구 ${chargeRaw[i]||0}, 입금 ${payRaw[i]||0}`);
           }
         });
 
