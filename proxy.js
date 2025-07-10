@@ -45,7 +45,8 @@ schedule.scheduleJob('*/10 * * * *', () => {
   console.log(`⏰ [${now}] 스케줄러 작동 중...`);
 });
 
-// 테스트용 스케줄러 (매 분마다) - 배포 후 제거 예정
+// 테스트용 스케줄러 (매 분마다) - 일시적으로 비활성화
+/*
 schedule.scheduleJob('* * * * *', async () => {
   const now = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
   const minute = new Date().getMinutes();
@@ -77,6 +78,7 @@ schedule.scheduleJob('* * * * *', async () => {
     }, 3000); // 3초 후 정산 전송
   }
 });
+*/
 
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbw1iZg5NQNhuym7p1Ky7WUg6ffa7Pnn0LSVAuZL1mdDmpOgFlsnZuJbO-gLIXuv_BzwBA/exec';
 
@@ -378,6 +380,13 @@ bot.on('message', async (msg) => {
   const text    = textRaw.replace(/\s+/g, ''); // 공백 제거 버전
   console.log('📱 텔레그램 메시지 수신:', textRaw);
   console.log('👤 발신자:', msg.from.username || msg.from.first_name);
+  console.log('💬 채팅 ID:', msg.chat.id); // 채팅 ID 로그 추가
+  
+  // 채팅 ID 확인 명령어
+  if (/^채팅아이디$/i.test(text) || /^chatid$/i.test(text)) {
+    bot.sendMessage(msg.chat.id, `📋 현재 채팅 ID: ${msg.chat.id}\n👤 사용자: ${msg.from.username || msg.from.first_name}`);
+    return;
+  }
 
   // 공용 GAS 호출 유틸 (기존 함수 재사용)
 
