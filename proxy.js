@@ -45,7 +45,8 @@ schedule.scheduleJob('*/10 * * * *', () => {
   console.log(`⏰ [${now}] 스케줄러 작동 중...`);
 });
 
-// 테스트용 스케줄러 (매 분마다) - 채팅 ID 수정 후 재활성화
+// 테스트용 스케줄러 - 자동알림 확인 완료로 비활성화
+/*
 schedule.scheduleJob('* * * * *', async () => {
   const now = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
   const minute = new Date().getMinutes();
@@ -68,6 +69,7 @@ schedule.scheduleJob('* * * * *', async () => {
     await sendDailySettlement();
   }
 });
+*/
 
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbw1iZg5NQNhuym7p1Ky7WUg6ffa7Pnn0LSVAuZL1mdDmpOgFlsnZuJbO-gLIXuv_BzwBA/exec';
 
@@ -679,7 +681,12 @@ bot.on('message', async (msg) => {
           }
         });
         
-        const list = Array.from(uniqueRooms.values()).filter(r => (parseFloat(r.settle)||0) > 0);
+        // 전월말 기준 미납금이 있고, 정산금이 양수인 호실만 필터링
+        const list = Array.from(uniqueRooms.values()).filter(r => {
+          const unpaid = parseFloat(r.unpaid || 0);
+          const settle = parseFloat(r.settle || 0);
+          return unpaid > 0 && settle > 0;  // 전월말 미납금 > 0 AND 정산금 > 0
+        });
         if(list.length === 0){
           bot.sendMessage(msg.chat.id, '모든 호실이 정산 완료되었습니다!');
         } else {
