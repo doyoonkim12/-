@@ -22,16 +22,27 @@ app.use(express.json());
 // 자동 전송 스케줄러
 const schedule = require('node-schedule');
 
-// 매일 오전 11시 - 오후 5시 할일 전송
+// 한국 시간대 설정
+process.env.TZ = 'Asia/Seoul';
+
+// 매일 오전 11시 - 오후 5시 할일 전송 (한국시간)
 schedule.scheduleJob('0 11 * * *', async () => {
-  console.log('🕚 오전 11시 - 오후 5시 할일 자동 전송');
+  const now = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+  console.log(`🕚 [${now}] 오전 11시 - 오후 5시 할일 자동 전송 시작`);
   await sendDailyTodos();
 });
 
-// 매일 오전 12시 - 정산금액 50만원 미만 세대 요약
+// 매일 오전 12시 - 정산금액 50만원 미만 세대 요약 (한국시간)
 schedule.scheduleJob('0 12 * * *', async () => {
-  console.log('🕛 오전 12시 - 정산금액 50만원 미만 세대 자동 전송');
+  const now = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+  console.log(`🕛 [${now}] 오전 12시 - 정산금액 50만원 미만 세대 자동 전송 시작`);
   await sendDailySettlement();
+});
+
+// 스케줄러 상태 확인용 (매 10분마다)
+schedule.scheduleJob('*/10 * * * *', () => {
+  const now = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+  console.log(`⏰ [${now}] 스케줄러 작동 중...`);
 });
 
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbw1iZg5NQNhuym7p1Ky7WUg6ffa7Pnn0LSVAuZL1mdDmpOgFlsnZuJbO-gLIXuv_BzwBA/exec';
