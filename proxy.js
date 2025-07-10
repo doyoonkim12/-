@@ -45,6 +45,24 @@ schedule.scheduleJob('*/10 * * * *', () => {
   console.log(`⏰ [${now}] 스케줄러 작동 중...`);
 });
 
+// 테스트용 스케줄러 (매 분마다) - 배포 후 제거 예정
+schedule.scheduleJob('* * * * *', async () => {
+  const now = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+  const minute = new Date().getMinutes();
+  
+  // 11분에 할일 테스트
+  if (minute === 11) {
+    console.log(`🧪 [${now}] 테스트: 할일 자동 전송`);
+    await sendDailyTodos();
+  }
+  
+  // 12분에 정산 테스트
+  if (minute === 12) {
+    console.log(`🧪 [${now}] 테스트: 정산 자동 전송`);
+    await sendDailySettlement();
+  }
+});
+
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbw1iZg5NQNhuym7p1Ky7WUg6ffa7Pnn0LSVAuZL1mdDmpOgFlsnZuJbO-gLIXuv_BzwBA/exec';
 
 // 자동 전송 함수들
