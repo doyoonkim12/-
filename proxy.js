@@ -580,7 +580,8 @@ bot.on('message', async (msg) => {
   // ===== 1.6) 악성미납 조회 =====
   if (/^악성미납$/i.test(text)) {
     try {
-      const result = await callGAS('getBadDebtors', {});
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      const result = await callGAS('getBadDebtors', { asOfDate: today });
       if(result && result.success){
         let list = result.data || [];
         
