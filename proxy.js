@@ -876,6 +876,108 @@ async function handleTelegramMessage(msg) {
     return; // 처리 완료
   }
 
+  // ===== 📁 아카이브 기능들 =====
+  
+  // 아카이브 목록 조회
+  if (/^아카이브목록$/i.test(text) || /^아카이브$/i.test(text)) {
+    try {
+      const result = await callGAS('getTelegramArchivedRooms', {});
+      if (result && result.success) {
+        await bot.sendMessage(msg.chat.id, result.message);
+      } else {
+        await bot.sendMessage(msg.chat.id, '📁 아카이브된 호실이 없습니다.');
+      }
+    } catch (err) {
+      console.error('아카이브 목록 조회 오류:', err);
+      bot.sendMessage(msg.chat.id, '❌ 아카이브 목록 조회 중 오류가 발생했습니다.');
+    }
+    return;
+  }
+
+  // 특정 호실 아카이브 상세 조회 (예: 407호아카이브)
+  const archiveDetailMatch = textRaw.match(/^(\d{3,4})호?아카이브$/i);
+  if (archiveDetailMatch) {
+    const room = archiveDetailMatch[1];
+    try {
+      const result = await callGAS('getTelegramArchivedRoomDetail', { room });
+      if (result && result.success) {
+        await bot.sendMessage(msg.chat.id, result.message);
+      } else {
+        await bot.sendMessage(msg.chat.id, `❌ ${room}호의 아카이브 데이터를 찾을 수 없습니다.`);
+      }
+    } catch (err) {
+      console.error(`${room}호 아카이브 상세 조회 오류:`, err);
+      bot.sendMessage(msg.chat.id, `❌ ${room}호 아카이브 조회 중 오류가 발생했습니다.`);
+    }
+    return;
+  }
+
+  // 아카이브 퇴실 처리 (예: 407호퇴실)
+  const archiveExitMatch = textRaw.match(/^(\d{3,4})호?퇴실(?:\s+(\d{4}-\d{2}-\d{2}))?$/i);
+  if (archiveExitMatch) {
+    const room = archiveExitMatch[1];
+    const outDate = archiveExitMatch[2] || getTodayKorea();
+    
+    try {
+      await bot.sendMessage(msg.chat.id, `🏠 ${room}호 퇴실 처리를 시작합니다...\n(데이터는 아카이브에 안전하게 보관됩니다)`);
+      
+      const result = await callGAS('removeTenantWithArchive', { 
+        room, 
+        outDate, 
+        archiveBy: msg.from.username || msg.from.first_name || 'Telegram' 
+      });
+      
+      if (result && result.success) {
+        let reply = `✅ ${room}호 안전 퇴실 완료!\n\n`;
+        reply += `📁 아카이브 내역:\n`;
+        reply += `• 입금 기록: ${result.archived.payments}건\n`;
+        reply += `• 사용량 기록: ${result.archived.usages}건\n`;
+        reply += `• 처리자: ${result.archived.archivedBy}\n`;
+        reply += `• 처리일: ${new Date(result.archived.archivedDate).toLocaleString('ko-KR')}\n\n`;
+        reply += `💡 복구하려면 "${room}호복구"를 입력하세요.`;
+        await bot.sendMessage(msg.chat.id, reply);
+      } else {
+        await bot.sendMessage(msg.chat.id, `❌ ${room}호 퇴실 처리 실패: ${result.message || '알 수 없는 오류'}`);
+      }
+    } catch (err) {
+      console.error(`${room}호 퇴실 처리 오류:`, err);
+      bot.sendMessage(msg.chat.id, `❌ ${room}호 퇴실 처리 중 오류가 발생했습니다.`);
+    }
+    return;
+  }
+
+  // 아카이브 복구 (예: 407호복구)
+  const restoreMatch = textRaw.match(/^(\d{3,4})호?복구$/i);
+  if (restoreMatch) {
+    const room = restoreMatch[1];
+    
+    try {
+      await bot.sendMessage(msg.chat.id, `🔄 ${room}호 데이터 복구를 시작합니다...`);
+      
+      const result = await callGAS('restoreFromArchive', { 
+        room, 
+        restoreBy: msg.from.username || msg.from.first_name || 'Telegram' 
+      });
+      
+      if (result && result.success) {
+        let reply = `✅ ${room}호 데이터 복구 완료!\n\n`;
+        reply += `🔄 복구 내역:\n`;
+        reply += `• 입금 기록: ${result.restored.payments}건\n`;
+        reply += `• 사용량 기록: ${result.restored.usages}건\n`;
+        reply += `• 복구자: ${result.restored.restoredBy}\n`;
+        reply += `• 복구일: ${new Date(result.restored.restoredDate).toLocaleString('ko-KR')}\n\n`;
+        reply += `💡 이제 ${room}호가 다시 활성화되었습니다.`;
+        await bot.sendMessage(msg.chat.id, reply);
+      } else {
+        await bot.sendMessage(msg.chat.id, `❌ ${room}호 복구 실패: ${result.message || '알 수 없는 오류'}`);
+      }
+    } catch (err) {
+      console.error(`${room}호 복구 오류:`, err);
+      bot.sendMessage(msg.chat.id, `❌ ${room}호 복구 중 오류가 발생했습니다.`);
+    }
+    return;
+  }
+
   // ===== 입금 데이터 등록 =====
   const dep = parseDepositMessage(textRaw);
   if(dep){
@@ -948,8 +1050,55 @@ async function handleTelegramMessage(msg) {
         bot.sendMessage(msg.chat.id, `❌ 시트 추가 실패: ${e.toString()}`);
       });
   } else {
-    bot.sendMessage(msg.chat.id, `❌ 메시지 형식이 올바르지 않습니다.\n\n✅ 올바른 형식:\n• 7/20 할일내용\n• 7월20일 할일내용\n• 0720 할일내용\n\n예: 7/20 804호 월세 받기`);
+    // 도움말 체크
+    if (/^도움말$/i.test(text) || /^help$/i.test(text)) {
+      await showBuildingManagementHelp(msg.chat.id);
+      return;
+    }
+    
+    bot.sendMessage(msg.chat.id, `❌ 메시지 형식이 올바르지 않습니다.\n\n💡 도움말을 보려면 "도움말"을 입력하세요.`);
   }
+}
+
+/* ───────────── 📚 도움말 시스템 ───────────── */
+async function showBuildingManagementHelp(chatId) {
+  const help = `
+🏢 **건물관리 시스템 도움말**
+
+📊 **현황 조회:**
+• \`금액\` (예: 320000, 30만원) - 정산금 기준 필터링
+• \`전체 미납\` - 정산금 양수인 모든 호실
+• \`악성미납\` - 2개월 입금없음 또는 30만원 미만
+• \`공실\` - 현재 공실 목록
+• \`2025-07\` - 월별 상세 현황
+
+🏠 **호실 관리:**
+• \`407호\` - 특정 호실 퇴실 정산 조회
+• \`407호퇴실\` - 호실 안전 퇴실 처리 (아카이브)
+• \`407호퇴실정산\` - 퇴실정산 PDF 생성
+
+📁 **아카이브 관리:**
+• \`아카이브\` - 아카이브된 호실 목록
+• \`407호아카이브\` - 특정 호실 아카이브 상세
+• \`407호복구\` - 아카이브에서 데이터 복구
+
+💰 **입금 등록:**
+• \`407호 입금 50만원 1/7\` - 입금 데이터 등록
+• \`407호 50만원 2025-01-07 월세\` - 상세 입금 등록
+
+📝 **할일 관리:**
+• \`할일\` - 앞으로 7일 할일 목록
+• \`7/20 할일내용\` - 새 할일 추가
+• \`7월20일 할일내용\` - 할일 추가 (다른 형식)
+
+💡 **팁:**
+• 금액은 쉼표나 '원' 없이 입력 가능
+• 날짜는 여러 형식 지원 (7/20, 0720, 7월20일 등)
+• 모든 조회는 한국 시간 기준으로 실시간 계산
+• 아카이브로 데이터 손실 없는 안전한 퇴실 처리
+  `;
+  
+  await bot.sendMessage(chatId, help);
 }
 
 const PORT = process.env.PORT || 3000;
