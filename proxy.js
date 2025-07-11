@@ -76,8 +76,10 @@ const GAS_URL = 'https://script.google.com/macros/s/AKfycbw1iZg5NQNhuym7p1Ky7WUg
 // 자동 전송 함수들
 async function sendDailyTodos() {
   try {
-    const today = new Date().toISOString().split('T')[0];
-    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const today = getTodayKorea(); // 한국 시간 기준 오늘 날짜
+    const tomorrowDate = new Date();
+    const tomorrowKorea = new Date(tomorrowDate.getTime() + (9 * 60 * 60 * 1000) + (24 * 60 * 60 * 1000)); // UTC+9 + 1일
+    const tomorrow = tomorrowKorea.toISOString().split('T')[0];
     
     // 오늘과 내일 할일 조회
     const todayTodos = await callGAS('getTodosByDate', { date: today });
@@ -117,7 +119,9 @@ async function sendDailyTodos() {
 
 async function sendDailySettlement() {
   try {
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const today = getTodayKorea(); // 한국 시간 기준 오늘 날짜
+    console.log(`📅 [정산 계산] 한국 시간 기준 오늘: ${today}`);
+    
     const res = await callGAS('getAllRoomStatus', { asOfDate: today });
     const listData = Array.isArray(res) ? res : (res && res.data ? res.data : []);
 
@@ -167,6 +171,13 @@ async function sendDailySettlement() {
   } catch (error) {
     console.error('❌ 정산 요약 자동 전송 실패:', error);
   }
+}
+
+// 한국 시간 기준 오늘 날짜 계산 함수
+function getTodayKorea() {
+  const now = new Date();
+  const koreaTime = new Date(now.getTime() + (9 * 60 * 60 * 1000)); // UTC+9
+  return koreaTime.toISOString().split('T')[0]; // YYYY-MM-DD
 }
 
 // 공용 GAS 호출 함수
@@ -458,7 +469,8 @@ async function handleTelegramMessage(msg) {
         return;
       }
 
-      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      const today = getTodayKorea(); // 한국 시간 기준 오늘 날짜
+      console.log(`📅 [금액별 필터] 한국 시간 기준 오늘: ${today}`);
       const res = await callGAS('getAllRoomStatus', { asOfDate: today });
       const listData = Array.isArray(res) ? res : (res && res.data ? res.data : []);
 
@@ -547,7 +559,7 @@ async function handleTelegramMessage(msg) {
           summaryMsg += `💰 전체 청구합계: ${totalBilling.toLocaleString()}원\n`;
           summaryMsg += `💳 전체 입금합계: ${totalPayment.toLocaleString()}원\n`;
           summaryMsg += `📈 차액: ${(totalPayment - totalBilling).toLocaleString()}원\n\n`;
-          summaryMsg += `🏢 층별로 3개 그룹으로 나누어 전송합니다...`;
+          summaryMsg += `🏢 3개 그룹으로 전송합니다...`;
           
           await bot.sendMessage(msg.chat.id, summaryMsg);
           
@@ -571,10 +583,9 @@ async function handleTelegramMessage(msg) {
             { name: '12층~16층', rooms: floor3 }
           ];
           
-          // 각 층별 그룹을 1초 간격으로 전송
-          for(let i = 0; i < floorGroups.length; i++) {
-            const group = floorGroups[i];
-            if(group.rooms.length === 0) continue;
+          // 각 층별 그룹을 빠르게 전송
+          const sendPromises = floorGroups.map(async (group, i) => {
+            if(group.rooms.length === 0) return;
             
             let floorMsg = `🏢 ${yearMonth} ${group.name} (${group.rooms.length}개)\n\n`;
             floorMsg += '호실 | 이름 | 청구 | 입금 | 차액\n';
@@ -586,9 +597,12 @@ async function handleTelegramMessage(msg) {
               floorMsg += `${r.room} | ${r.name||'-'} | ${Number(r.billing||0).toLocaleString()} | ${Number(r.payment||0).toLocaleString()} | ${diffStr}\n`;
             });
             
-            if(i > 0) await new Promise(resolve => setTimeout(resolve, 1000)); // 1초 대기
-            await bot.sendMessage(msg.chat.id, floorMsg);
-          }
+            // 약간의 지연으로 순서 보장
+            await new Promise(resolve => setTimeout(resolve, i * 100));
+            return bot.sendMessage(msg.chat.id, floorMsg);
+          });
+          
+          await Promise.all(sendPromises.filter(p => p)); // 병렬 전송
         } else {
           await bot.sendMessage(msg.chat.id, `📊 ${yearMonth}\n\n해당 월 데이터가 없습니다.`);
         }
@@ -605,8 +619,8 @@ async function handleTelegramMessage(msg) {
   // ===== 1.6) 악성미납 조회 (2개월 입금없음 OR 정산금 30만원 미만) =====
   if (/^악성미납$/i.test(text)) {
     try {
-      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-      console.log(`📅 악성미납 조회 - 기준일: ${today}`);
+      const today = getTodayKorea(); // 한국 시간 기준 오늘 날짜
+      console.log(`📅 [악성미납 조회] 한국 시간 기준 오늘: ${today}`);
       
       const result = await callGAS('getBadDebtors', { 
         asOfDate: today,
@@ -669,7 +683,8 @@ async function handleTelegramMessage(msg) {
   // ===== 2) 전체 미납 (기존 방식) =====
   if (/^전체\s*미납$/i.test(textRaw)) {
     try {
-      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      const today = getTodayKorea(); // 한국 시간 기준 오늘 날짜
+      console.log(`📅 [전체 미납] 한국 시간 기준 오늘: ${today}`);
       const res = await callGAS('getAllRoomStatus', { asOfDate: today });
       const listData = Array.isArray(res) ? res : (res && res.data ? res.data : []);
 
@@ -716,8 +731,8 @@ async function handleTelegramMessage(msg) {
   if (/^\d{3,4}(호)?$/.test(text)) {
     const room = text.replace(/호$/,'');
     try {
-      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-      console.log(`🔍 [${room}호] 퇴실정산 요청 - 기준일: ${today}`);
+      const today = getTodayKorea(); // 한국 시간 기준 오늘 날짜
+      console.log(`🔍 [${room}호] 퇴실정산 요청 - 한국 시간 기준일: ${today}`);
       const result = await callGAS('getSettlementSummary', { room, asOfDate: today });
       console.log(`📊 [${room}호] GAS 응답:`, result);
       if(result && result.success){
@@ -729,9 +744,10 @@ async function handleTelegramMessage(msg) {
         const chargeRaw = result.charge || []; // billing 대신 charge 사용
         const payRaw    = result.payment || [];
 
-        const todayYM = new Date().toISOString().slice(0,7); // YYYY-MM
-        const todayFull = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-        console.log(`📅 [${room}호] 오늘 날짜: ${todayFull}, 오늘 년월: ${todayYM}`);
+        const todayKorea = getTodayKorea(); // 한국 시간 기준 오늘 날짜
+        const todayYM = todayKorea.slice(0,7); // YYYY-MM
+        const todayFull = todayKorea; // YYYY-MM-DD
+        console.log(`📅 [${room}호] 한국 시간 기준 오늘 날짜: ${todayFull}, 오늘 년월: ${todayYM}`);
         
         const header = [];
         const charge = [];
@@ -756,8 +772,8 @@ async function handleTelegramMessage(msg) {
 
         let reply = `🧾 ${room}호 퇴실 정산 요약\n`;
         reply += `입주: ${prof.moveIn ? prof.moveIn.toString().split('T')[0] : '-'}\n`;
-        // 퇴실일이 없으면 오늘 날짜 사용
-        const moveOutDate = prof.moveOut ? prof.moveOut.toString().split('T')[0] : new Date().toISOString().split('T')[0];
+        // 퇴실일이 없으면 오늘 날짜 사용 (한국 시간 기준)
+        const moveOutDate = prof.moveOut ? prof.moveOut.toString().split('T')[0] : getTodayKorea();
         reply += `퇴실: ${moveOutDate}\n`;
         reply += `이름: ${prof.name || '-'}\n`;
         reply += `연락처: ${prof.contact || '-'}\n`;
@@ -821,35 +837,24 @@ async function handleTelegramMessage(msg) {
   if (/^할일$/i.test(text)) {
     try {
       const today = new Date();
+      const koreaTime = new Date(today.getTime() + (9 * 60 * 60 * 1000)); // UTC+9 한국 시간
       const dates = Array.from({ length: 7 }, (_, i) => {
-        const d = new Date(today.getTime());
+        const d = new Date(koreaTime.getTime());
         d.setDate(d.getDate() + i);
         return d.toISOString().split('T')[0]; // YYYY-MM-DD
       });
 
-      const fetchPromises = dates.map(dateStr => {
-        return fetch(GAS_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify({ func: 'getTodosByDate', params: { date: dateStr } })
-        })
-          .then(res => res.text())
-          .then(txt => {
-            try {
-              const json = JSON.parse(txt);
-              if (json.success && Array.isArray(json.data)) {
-                return { date: dateStr, list: json.data };
-              }
-            } catch (e) {
-              console.error('JSON 파싱 오류:', e);
-            }
+      const fetchPromises = dates.map(dateStr => 
+        callGAS('getTodosByDate', { date: dateStr })
+          .then(result => ({
+            date: dateStr,
+            list: (result && result.success && Array.isArray(result.data)) ? result.data : []
+          }))
+          .catch(err => {
+            console.error('📡 할일 조회 실패:', dateStr, err);
             return { date: dateStr, list: [] };
           })
-          .catch(err => {
-            console.error('📡 GAS 호출 실패:', err);
-            return { date: dateStr, list: [] };
-          });
-      });
+      );
 
       const results = await Promise.all(fetchPromises);
       let reply = '🗓️ 앞으로 7일 할일 목록\n';
