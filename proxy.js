@@ -616,7 +616,7 @@ async function handleTelegramMessage(msg) {
     return;
   }
 
-  // ===== 1.6) 악성미납 조회 (2개월 입금없음 OR 정산금 30만원 미만) =====
+  // ===== 1.6) 악성미납 조회 (2개월 입금없음 OR 정산금 50만원 미만) =====
   if (/^악성미납$/i.test(text)) {
     try {
       const today = getTodayKorea(); // 한국 시간 기준 오늘 날짜
@@ -624,7 +624,7 @@ async function handleTelegramMessage(msg) {
       
       const result = await callGAS('getBadDebtors', { 
         asOfDate: today,
-        settlementThreshold: 300000 // 30만원 미만 기준
+        settlementThreshold: 500000 // 50만원 미만 기준
       });
       if(result && result.success){
         let list = result.data || [];
@@ -649,7 +649,7 @@ async function handleTelegramMessage(msg) {
         } else {
           // 한 번에 모든 내용 전송 (악성미납은 개수가 적음)
           let reply = `⚠️ 악성미납 세대 (${list.length}개)\n`;
-          reply += '2개월 입금없음 또는 정산금 30만원 미만(마이너스 포함)\n\n';
+          reply += '2개월 입금없음 또는 정산금 50만원 미만(마이너스 포함)\n\n';
           reply += `💰 총 정산금액: ${list.reduce((sum, r) => sum + (r.settle||0), 0).toLocaleString()}원\n\n`;
           reply += '호실 | 이름 | 연락처 | 입주일 | 정산금액 | 특이사항\n';
           reply += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
@@ -1068,7 +1068,7 @@ async function showBuildingManagementHelp(chatId) {
 📊 **현황 조회:**
 • \`금액\` (예: 320000, 30만원) - 정산금 기준 필터링
 • \`전체 미납\` - 정산금 양수인 모든 호실
-• \`악성미납\` - 2개월 입금없음 또는 30만원 미만
+• \`악성미납\` - 2개월 입금없음 또는 50만원 미만
 • \`공실\` - 현재 공실 목록
 • \`2025-07\` - 월별 상세 현황
 
