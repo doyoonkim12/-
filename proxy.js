@@ -589,8 +589,8 @@ async function handleTelegramMessage(msg) {
             });
             for(let i=0; i<lines.length; i+=4){
               let chunk = lines.slice(i,i+4).join('\n');
-              let msg = msgHeader + chunk;
-              await bot.sendMessage(msg.chat.id, msg);
+              let messageText = msgHeader + chunk;
+              await bot.sendMessage(msg.chat.id, messageText);
             }
             // 입금하지 않은 세대
             const unpaidRooms = filteredRooms.filter(r => (r.payment||0) === 0);
