@@ -557,33 +557,41 @@ async function handleTelegramMessage(msg) {
           summaryMsg += `💳 전체 입금합계: ${totalPayment.toLocaleString()}원\n`;
           summaryMsg += `📈 차액: ${diffTotal.toLocaleString()}원\n\n`;
           summaryMsg += `🏢 4개 그룹으로 전송합니다...`;
-          await bot.sendMessage(msg.chat.id, summaryMsg);
-          // 상세 메시지(4줄씩)
-          let msgHeader = `관리내용 ${firstRoom}~${lastRoom}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-          let lines = [];
-          filteredRooms.forEach(r => {
-            const diff = (r.payment||0) - (r.billing||0);
-            const diffStr = diff >= 0 ? `+${diff.toLocaleString()}` : diff.toLocaleString();
-            lines.push(`${r.room} | ${r.name||'-'} | 청구 ${Number(r.billing||0).toLocaleString()} | 입금 ${Number(r.payment||0).toLocaleString()} | 차액 ${diffStr} | 잔액 ${Number(r.settle||0).toLocaleString()}`);
-          });
-          for(let i=0; i<lines.length; i+=4){
-            let chunk = lines.slice(i,i+4).join('\n');
-            let msg = msgHeader + chunk;
-            await bot.sendMessage(msg.chat.id, msg);
+          if (msg && msg.chat && msg.chat.id) {
+            await bot.sendMessage(msg.chat.id, summaryMsg);
+            // 상세 메시지(4줄씩)
+            let msgHeader = `관리내용 ${firstRoom}~${lastRoom}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+            let lines = [];
+            filteredRooms.forEach(r => {
+              const diff = (r.payment||0) - (r.billing||0);
+              const diffStr = diff >= 0 ? `+${diff.toLocaleString()}` : diff.toLocaleString();
+              lines.push(`${r.room} | ${r.name||'-'} | 청구 ${Number(r.billing||0).toLocaleString()} | 입금 ${Number(r.payment||0).toLocaleString()} | 차액 ${diffStr} | 잔액 ${Number(r.settle||0).toLocaleString()}`);
+            });
+            for(let i=0; i<lines.length; i+=4){
+              let chunk = lines.slice(i,i+4).join('\n');
+              let msg = msgHeader + chunk;
+              await bot.sendMessage(msg.chat.id, msg);
+            }
+            // 입금하지 않은 세대
+            const unpaidRooms = filteredRooms.filter(r => (r.payment||0) === 0);
+            let unpaidMsg = `\n입금 하지 않은 세대수 : ${unpaidRooms.length}\n해당 호실목록 : ${unpaidRooms.map(r=>r.room).join(', ')}`;
+            await bot.sendMessage(msg.chat.id, unpaidMsg);
           }
-          // 입금하지 않은 세대
-          const unpaidRooms = filteredRooms.filter(r => (r.payment||0) === 0);
-          let unpaidMsg = `\n입금 하지 않은 세대수 : ${unpaidRooms.length}\n해당 호실목록 : ${unpaidRooms.map(r=>r.room).join(', ')}`;
-          await bot.sendMessage(msg.chat.id, unpaidMsg);
         } else {
-          await bot.sendMessage(msg.chat.id, `📊 ${yearMonth}\n\n해당 월 데이터가 없습니다.`);
+          if (msg && msg.chat && msg.chat.id) {
+            await bot.sendMessage(msg.chat.id, `📊 ${yearMonth}\n\n해당 월 데이터가 없습니다.`);
+          }
         }
       } else {
-        bot.sendMessage(msg.chat.id, result.message || '❌ 월별 데이터를 가져오지 못했습니다.');
+        if (msg && msg.chat && msg.chat.id) {
+          bot.sendMessage(msg.chat.id, result.message || '❌ 월별 데이터를 가져오지 못했습니다.');
+        }
       }
     } catch(err){
       console.error('월별 조회 오류:', err);
-      bot.sendMessage(msg.chat.id, '❌ 오류: '+err.message);
+      if (msg && msg.chat && msg.chat.id) {
+        bot.sendMessage(msg.chat.id, '❌ 오류: '+err.message);
+      }
     }
     return;
   }
