@@ -529,7 +529,6 @@ async function handleTelegramMessage(msg) {
       const result = await callGAS('getMonthlyDetail', { month: yearMonth });
       if(result && result.success){
         const data = result.data || {};
-        
         if(data.rooms && data.rooms.length > 0){
           // 중복 호실 제거 (호실 번호 기준)
           const uniqueRooms = new Map();
@@ -539,70 +538,43 @@ async function handleTelegramMessage(msg) {
             }
           });
           const rooms = Array.from(uniqueRooms.values());
-          
           // 301~1606 호실만 필터링
           const filteredRooms = rooms.filter(r => {
             const rn = parseInt(r.room, 10);
             return !isNaN(rn) && rn >= 301 && rn <= 1606;
           });
-          
           // 호실 번호순 정렬
           filteredRooms.sort((a, b) => parseInt(a.room, 10) - parseInt(b.room, 10));
-          
-          // 총합 재계산
+          // 요약 메시지
           const totalBilling = filteredRooms.reduce((sum, r) => sum + (r.billing || 0), 0);
           const totalPayment = filteredRooms.reduce((sum, r) => sum + (r.payment || 0), 0);
-          
-          // 요약 메시지 먼저 전송
+          const diffTotal = totalPayment - totalBilling;
+          const firstRoom = filteredRooms.length > 0 ? filteredRooms[0].room : '';
+          const lastRoom = filteredRooms.length > 0 ? filteredRooms[filteredRooms.length-1].room : '';
           let summaryMsg = `📊 ${yearMonth} 월별 요약\n\n`;
-          summaryMsg += `📋 대상 세대: ${filteredRooms.length}개 (301~1606호)\n`;
+          summaryMsg += `📋 대상 세대: ${filteredRooms.length}개 (${firstRoom}~${lastRoom}호)\n`;
           summaryMsg += `💰 전체 청구합계: ${totalBilling.toLocaleString()}원\n`;
           summaryMsg += `💳 전체 입금합계: ${totalPayment.toLocaleString()}원\n`;
-          summaryMsg += `📈 차액: ${(totalPayment - totalBilling).toLocaleString()}원\n\n`;
-          summaryMsg += `🏢 3개 그룹으로 전송합니다...`;
-          
+          summaryMsg += `📈 차액: ${diffTotal.toLocaleString()}원\n\n`;
+          summaryMsg += `🏢 4개 그룹으로 전송합니다...`;
           await bot.sendMessage(msg.chat.id, summaryMsg);
-          
-          // 층별로 그룹 나누기
-          const floor1 = filteredRooms.filter(r => {
-            const rn = parseInt(r.room, 10);
-            return rn >= 301 && rn <= 799; // 3층~7층
+          // 상세 메시지(4줄씩)
+          let msgHeader = `관리내용 ${firstRoom}~${lastRoom}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+          let lines = [];
+          filteredRooms.forEach(r => {
+            const diff = (r.payment||0) - (r.billing||0);
+            const diffStr = diff >= 0 ? `+${diff.toLocaleString()}` : diff.toLocaleString();
+            lines.push(`${r.room} | ${r.name||'-'} | 청구 ${Number(r.billing||0).toLocaleString()} | 입금 ${Number(r.payment||0).toLocaleString()} | 차액 ${diffStr} | 잔액 ${Number(r.settle||0).toLocaleString()}`);
           });
-          const floor2 = filteredRooms.filter(r => {
-            const rn = parseInt(r.room, 10);
-            return rn >= 801 && rn <= 1199; // 8층~11층
-          });
-          const floor3 = filteredRooms.filter(r => {
-            const rn = parseInt(r.room, 10);
-            return rn >= 1201 && rn <= 1606; // 12층~16층
-          });
-          
-          const floorGroups = [
-            { name: '3층~7층', rooms: floor1 },
-            { name: '8층~11층', rooms: floor2 },
-            { name: '12층~16층', rooms: floor3 }
-          ];
-          
-          // 각 층별 그룹을 빠르게 전송
-          const sendPromises = floorGroups.map(async (group, i) => {
-            if(group.rooms.length === 0) return;
-            
-            let floorMsg = `🏢 ${yearMonth} ${group.name} (${group.rooms.length}개)\n\n`;
-            floorMsg += '호실 | 이름 | 청구 | 입금 | 차액\n';
-            floorMsg += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
-            
-            group.rooms.forEach(r => {
-              const diff = (r.payment||0) - (r.billing||0);
-              const diffStr = diff >= 0 ? `+${diff.toLocaleString()}` : diff.toLocaleString();
-              floorMsg += `${r.room} | ${r.name||'-'} | ${Number(r.billing||0).toLocaleString()} | ${Number(r.payment||0).toLocaleString()} | ${diffStr}\n`;
-            });
-            
-            // 약간의 지연으로 순서 보장
-            await new Promise(resolve => setTimeout(resolve, i * 100));
-            return bot.sendMessage(msg.chat.id, floorMsg);
-          });
-          
-          await Promise.all(sendPromises.filter(p => p)); // 병렬 전송
+          for(let i=0; i<lines.length; i+=4){
+            let chunk = lines.slice(i,i+4).join('\n');
+            let msg = msgHeader + chunk;
+            await bot.sendMessage(msg.chat.id, msg);
+          }
+          // 입금하지 않은 세대
+          const unpaidRooms = filteredRooms.filter(r => (r.payment||0) === 0);
+          let unpaidMsg = `\n입금 하지 않은 세대수 : ${unpaidRooms.length}\n해당 호실목록 : ${unpaidRooms.map(r=>r.room).join(', ')}`;
+          await bot.sendMessage(msg.chat.id, unpaidMsg);
         } else {
           await bot.sendMessage(msg.chat.id, `📊 ${yearMonth}\n\n해당 월 데이터가 없습니다.`);
         }
