@@ -396,7 +396,27 @@ const processedMessages = new Set();
 
 // 텔레그램 메시지 처리 함수 (WebHook과 Polling 공용)
 async function handleTelegramMessage(msg) {
-  // 중복 메시지 처리 방지
+  // msg가 undefined인 경우 처리
+  if (!msg) {
+    console.error('❌ handleTelegramMessage: msg is undefined');
+    return;
+  }
+  
+  // msg 구조 확인
+  console.log('🔍 handleTelegramMessage msg structure:', {
+    hasMsg: !!msg,
+    hasChat: !!(msg && msg.chat),
+    hasId: !!(msg && msg.chat && msg.chat.id),
+    chatId: msg && msg.chat ? msg.chat.id : 'undefined',
+    text: msg && msg.text ? msg.text.substring(0, 50) : 'undefined'
+  });
+  
+  // msg 구조 확인
+  if (!msg.chat || !msg.chat.id) {
+    console.error('❌ handleTelegramMessage: msg.chat or msg.chat.id is undefined');
+    return;
+  }
+  
   const messageId = `${msg.chat.id}_${msg.message_id}`;
   if (processedMessages.has(messageId)) {
     console.log('⚠️ 중복 메시지 무시:', messageId);
