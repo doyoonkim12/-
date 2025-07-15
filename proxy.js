@@ -576,10 +576,10 @@ async function handleTelegramMessage(msg) {
           summaryMsg += `💰 전체 청구합계: ${totalBilling.toLocaleString()}원\n`;
           summaryMsg += `💳 전체 입금합계: ${totalPayment.toLocaleString()}원\n`;
           summaryMsg += `📈 차액: ${diffTotal.toLocaleString()}원\n\n`;
-          summaryMsg += `🏢 4개 그룹으로 전송합니다...`;
+          summaryMsg += `🏢 9개씩 그룹으로 전송합니다...`;
           if (msg && msg.chat && msg.chat.id) {
             await bot.sendMessage(msg.chat.id, summaryMsg);
-            // 상세 메시지(4줄씩)
+            // 상세 메시지(9줄씩)
             let msgHeader = `관리내용 ${firstRoom}~${lastRoom}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
             let lines = [];
             filteredRooms.forEach(r => {
@@ -587,15 +587,38 @@ async function handleTelegramMessage(msg) {
               const diffStr = diff >= 0 ? `+${diff.toLocaleString()}` : diff.toLocaleString();
               lines.push(`${r.room} | ${r.name||'-'} | 청구 ${Number(r.billing||0).toLocaleString()} | 입금 ${Number(r.payment||0).toLocaleString()} | 차액 ${diffStr} | 잔액 ${Number(r.settle||0).toLocaleString()}`);
             });
-            for(let i=0; i<lines.length; i+=4){
-              let chunk = lines.slice(i,i+4).join('\n');
+            for(let i=0; i<lines.length; i+=9){
+              let chunk = lines.slice(i,i+9).join('\n');
               let messageText = msgHeader + chunk;
-              await bot.sendMessage(msg.chat.id, messageText);
+              try {
+                await bot.sendMessage(msg.chat.id, messageText);
+                // 텔레그램 API 제한 방지를 위한 지연
+                if (i + 9 < lines.length) {
+                  await new Promise(resolve => setTimeout(resolve, 2000)); // 2초 대기
+                }
+              } catch (telegramError) {
+                console.error('텔레그램 메시지 전송 오류:', telegramError);
+                if (telegramError.code === 'ETELEGRAM' && telegramError.response && telegramError.response.statusCode === 429) {
+                  // Rate limit 오류인 경우 더 오래 대기
+                  console.log('텔레그램 API 제한 감지, 35초 대기...');
+                  await new Promise(resolve => setTimeout(resolve, 35000));
+                  // 재시도
+                  try {
+                    await bot.sendMessage(msg.chat.id, messageText);
+                  } catch (retryError) {
+                    console.error('텔레그램 재시도 실패:', retryError);
+                  }
+                }
+              }
             }
             // 입금하지 않은 세대
             const unpaidRooms = filteredRooms.filter(r => (r.payment||0) === 0);
             let unpaidMsg = `\n입금 하지 않은 세대수 : ${unpaidRooms.length}\n해당 호실목록 : ${unpaidRooms.map(r=>r.room).join(', ')}`;
-            await bot.sendMessage(msg.chat.id, unpaidMsg);
+            try {
+              await bot.sendMessage(msg.chat.id, unpaidMsg);
+            } catch (telegramError) {
+              console.error('입금하지 않은 세대 메시지 전송 오류:', telegramError);
+            }
           }
         } else {
           if (msg && msg.chat && msg.chat.id) {
