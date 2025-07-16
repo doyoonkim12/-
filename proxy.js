@@ -777,25 +777,21 @@ async function handleTelegramMessage(msg) {
   if (monthPayMatch) {
     const month = `${monthPayMatch[1]}-${monthPayMatch[2]}`;
     try {
-      const res = await callGAS('getMonthlyDetail', { month });
+      const res = await callGAS('getMonthlyPaymentDetail', { month });
       if (!res.success || !res.data) {
         await bot.sendMessage(chatId, '❌ 데이터 조회에 실패했습니다.');
         return;
       }
       const data = res.data;
-      let message = `📊 ${month} 월별 요약\n\n`;
+      let message = `📊 ${month} 월 입금내역\n\n`;
       message += `📋 대상 세대: ${data.rooms.length}개\n`;
-      message += `💰 전체 청구합계: ${Number(data.totalBilling).toLocaleString()}원\n`;
-      message += `💳 전체 입금합계: ${Number(data.totalPayment).toLocaleString()}원\n`;
-      message += `📈 차액: ${(data.totalBilling - data.totalPayment).toLocaleString()}원\n\n`;
-      // 입금 있는 방만
-      const paidRooms = data.rooms.filter(r => r.payment > 0);
-      if (paidRooms.length === 0) {
-        message += '해당 월에 입금 내역이 있는 호실이 없습니다.';
+      message += `💳 전체 입금합계: ${Number(data.totalPayment).toLocaleString()}원\n\n`;
+      if (data.payments.length === 0) {
+        message += '해당 월에 입금 내역이 없습니다.';
       } else {
-        paidRooms.forEach(r => {
-          const date = r.paymentDate ? r.paymentDate.slice(5) : '-'; // MM-DD
-          message += `${r.room}호 | ${Number(r.payment).toLocaleString()} | ${date}\n`;
+        data.payments.forEach(p => {
+          const date = p.date ? p.date.slice(5) : '-';
+          message += `${p.room}호 | ${Number(p.amount).toLocaleString()} | ${date}\n`;
         });
       }
       await bot.sendMessage(chatId, message);
