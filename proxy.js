@@ -186,6 +186,7 @@ function getTodayKorea() {
 // 공용 GAS 호출 함수 (텔레그램용 - 타임아웃 없음)
 async function callGAS(func, params = {}) {
   try {
+    console.log(`[DEBUG] callGAS 호출: func=`, func, 'params=', params);
     console.log(`📡 GAS 호출 시작: ${func}`, params);
     
     const res = await fetch(GAS_URL, {
@@ -776,6 +777,7 @@ async function handleTelegramMessage(msg) {
   const monthPayMatch = textRaw.match(/^([0-9]{4})[-.]?([0-9]{2})입금내역$/);
   if (monthPayMatch) {
     const month = `${monthPayMatch[1]}-${monthPayMatch[2]}`;
+    console.log('[DEBUG] 텔레그램에서 추출한 month:', month, 'monthPayMatch:', monthPayMatch);
     try {
       const res = await callGAS('getMonthlyPaymentDetail', { month });
       if (!res.success || !res.data) {
