@@ -180,19 +180,35 @@ function getTodayKorea() {
   return koreaTime.toISOString().split('T')[0]; // YYYY-MM-DD
 }
 
-// 공용 GAS 호출 함수
+// 공용 GAS 호출 함수 (타임아웃 120초로 증가)
 async function callGAS(func, params = {}) {
-  const res = await fetch(GAS_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ func, params })
-  });
-  const txt = await res.text();
-  try { 
-    return JSON.parse(txt); 
-  } catch(e) {
-    console.error('JSON 파싱 오류:', e, txt); 
-    return null; 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 120000); // 120초 타임아웃
+  
+  try {
+    const res = await fetch(GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ func, params }),
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    
+    const txt = await res.text();
+    try { 
+      return JSON.parse(txt); 
+    } catch(e) {
+      console.error('JSON 파싱 오류:', e, txt); 
+      return null; 
+    }
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      console.error('❌ GAS 호출 타임아웃 (120초 초과)');
+    } else {
+      console.error('❌ GAS 호출 오류:', error);
+    }
+    return null;
   }
 }
 
@@ -268,21 +284,33 @@ app.post('/webhook', (req, res) => {
   }
 });
 
-// 프론트엔드 → GAS 프록시
+// 프론트엔드 → GAS 프록시 (타임아웃 120초)
 app.post('/api', async (req, res) => {
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120000); // 120초 타임아웃
+    
     const body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
     const response = await fetch(GAS_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: body
+      body: body,
+      signal: controller.signal
     });
+    
+    clearTimeout(timeoutId);
     const data = await response.text();
     res.set('Access-Control-Allow-Origin', '*');
     res.set('Access-Control-Allow-Headers', '*');
     res.send(data);
-  } catch (e) {
-    res.status(500).send({ error: e.toString() });
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      console.error('❌ API 프록시 타임아웃 (120초 초과)');
+      res.status(408).send({ error: 'Request Timeout (120초 초과)' });
+    } else {
+      console.error('❌ API 프록시 오류:', error);
+      res.status(500).send({ error: error.toString() });
+    }
   }
 });
 
