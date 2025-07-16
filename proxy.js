@@ -789,9 +789,13 @@ async function handleTelegramMessage(msg) {
       if (data.payments.length === 0) {
         message += '해당 월에 입금 내역이 없습니다.';
       } else {
+        // 날짜순, 같은 날짜면 호실순 정렬 (GAS에서 이미 정렬했지만 안전하게 한 번 더)
+        data.payments.sort((a, b) => {
+          if (a.date === b.date) return a.room.localeCompare(b.room, 'ko-KR', { numeric: true });
+          return a.date.localeCompare(b.date);
+        });
         data.payments.forEach(p => {
-          const date = p.date ? p.date.slice(5) : '-';
-          message += `${p.room}호 | ${Number(p.amount).toLocaleString()} | ${date}\n`;
+          message += `${p.date} | ${p.room}호 | ${Number(p.amount).toLocaleString()}\n`;
         });
       }
       await bot.sendMessage(chatId, message);
