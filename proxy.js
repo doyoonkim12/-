@@ -575,14 +575,10 @@ async function handleTelegramMessage(msg) {
         const chunk = list.slice(i, i + chunkSize);
         const chunkNumber = Math.floor(i / chunkSize) + 1;
         
-        let reply = `📋 정산금 ${threshold.toLocaleString()}원 미만 호실 (${list.length}개) - ${chunkNumber}/${totalChunks}\n`;
-        reply += '\n호실 | 이름 | 연락처 | 미납 | 정산 | 특이사항';
-        reply += '\n--------------------------------------------------------------';
+        let reply = `📋 정산금 ${threshold.toLocaleString()}원 미만 호실 (${list.length}개) - ${chunkNumber}/${totalChunks}\n\n`;
         
         chunk.forEach(r => {
-          reply += `\n${r.room}호 | ${r.name || '-'} | ${r.contact || '-'}\n`;
-          reply += `총 청구내역 ${Number(r.unpaid||0).toLocaleString()} | 정산금액 ${Number(r.settle||0).toLocaleString()}\n`;
-          reply += `특이사항 : ${r.remark||'-'}\n`;
+          reply += `${r.room}호 | ${r.name || '-'} | ${(r.settle||0).toLocaleString()}원\n`;
         });
 
         await bot.sendMessage(msg.chat.id, reply);
