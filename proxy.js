@@ -180,36 +180,25 @@ function getTodayKorea() {
   return koreaTime.toISOString().split('T')[0]; // YYYY-MM-DD
 }
 
-// 공용 GAS 호출 함수 (타임아웃 120초로 증가)
+// 공용 GAS 호출 함수 (텔레그램용 - 타임아웃 없음)
 async function callGAS(func, params = {}) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 120000); // 120초 타임아웃
-  
   try {
     const res = await fetch(GAS_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ func, params }),
-      signal: controller.signal
+      body: JSON.stringify({ func, params })
     });
-    clearTimeout(timeoutId);
     
     const txt = await res.text();
     try { 
       return JSON.parse(txt); 
     } catch(e) {
       console.error('JSON 파싱 오류:', e, txt); 
-      return null; 
+      return { success: false, message: 'JSON 파싱 오류' }; 
     }
   } catch (error) {
-    clearTimeout(timeoutId);
-    if (error.name === 'AbortError') {
-      console.error('❌ GAS 호출 타임아웃 (120초 초과)');
-      return { success: false, message: 'GAS 호출 타임아웃 (120초 초과)' };
-    } else {
-      console.error('❌ GAS 호출 오류:', error);
-      return { success: false, message: `GAS 호출 오류: ${error.message}` };
-    }
+    console.error('❌ GAS 호출 오류:', error);
+    return { success: false, message: `GAS 호출 오류: ${error.message}` };
   }
 }
 
