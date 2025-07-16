@@ -205,10 +205,11 @@ async function callGAS(func, params = {}) {
     clearTimeout(timeoutId);
     if (error.name === 'AbortError') {
       console.error('❌ GAS 호출 타임아웃 (120초 초과)');
+      return { success: false, message: 'GAS 호출 타임아웃 (120초 초과)' };
     } else {
       console.error('❌ GAS 호출 오류:', error);
+      return { success: false, message: `GAS 호출 오류: ${error.message}` };
     }
-    return null;
   }
 }
 
@@ -460,12 +461,15 @@ async function handleTelegramMessage(msg) {
   const textRaw = (msg.text || '').trim();
   const text    = textRaw.replace(/\s+/g, ''); // 공백 제거 버전
   console.log('📱 텔레그램 메시지 수신:', textRaw);
-  console.log('👤 발신자:', msg.from.username || msg.from.first_name);
+  
+  // msg.from null 체크 추가
+  const senderName = msg.from ? (msg.from.username || msg.from.first_name || 'Unknown') : 'Unknown';
+  console.log('👤 발신자:', senderName);
   console.log('💬 채팅 ID:', msg.chat.id); // 채팅 ID 로그 추가
   
   // 채팅 ID 확인 명령어
   if (/^채팅아이디$/i.test(text) || /^chatid$/i.test(text)) {
-    bot.sendMessage(msg.chat.id, `📋 현재 채팅 ID: ${msg.chat.id}\n👤 사용자: ${msg.from.username || msg.from.first_name}`);
+    bot.sendMessage(msg.chat.id, `📋 현재 채팅 ID: ${msg.chat.id}\n👤 사용자: ${senderName}`);
     return;
   }
 
@@ -722,7 +726,8 @@ async function handleTelegramMessage(msg) {
           bot.sendMessage(msg.chat.id, reply);
         }
       } else {
-        bot.sendMessage(msg.chat.id, result.message || '❌ 악성미납 데이터를 가져오지 못했습니다.');
+        const errorMessage = result && result.message ? result.message : '❌ 악성미납 데이터를 가져오지 못했습니다.';
+        bot.sendMessage(msg.chat.id, errorMessage);
       }
     } catch(err){
       console.error('악성미납 조회 오류:', err);
