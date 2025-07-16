@@ -73,6 +73,9 @@ schedule.scheduleJob('* * * * *', async () => {
 
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbw1iZg5NQNhuym7p1Ky7WUg6ffa7Pnn0LSVAuZL1mdDmpOgFlsnZuJbO-gLIXuv_BzwBA/exec';
 
+// 텔레그램 메시지 중복 방지를 위한 Map (chatId별로 Set 관리)
+const processedMessages = new Map();
+
 // 자동 전송 함수들
 async function sendDailyTodos() {
   try {
@@ -419,8 +422,7 @@ function parseDepositMessage(msg){
   }catch(e){ console.error('parseDepositMessage 오류',e); return null; }
 }
 
-// 메시지 중복 처리 방지 (채팅방별로 분리)
-const processedMessages = new Map(); // chatId별로 Set 관리
+
 
 // 텔레그램 메시지 처리 함수 (WebHook과 Polling 공용)
 async function handleTelegramMessage(msg) {
