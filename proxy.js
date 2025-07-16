@@ -536,13 +536,17 @@ async function handleTelegramMessage(msg) {
       console.log(`📅 [금액별 필터] 한국 시간 기준 오늘: ${today}`);
       const res = await callGAS('getAllRoomStatus', { asOfDate: today });
       const listData = Array.isArray(res) ? res : (res && res.data ? res.data : []);
+      
+      // 디버깅: 첫 번째 데이터 확인
+      if (listData.length > 0) {
+        console.log('🔍 첫 번째 데이터 샘플:', JSON.stringify(listData[0], null, 2));
+      }
 
-      // 1) 301~1606 호실만, 2) 연락처 있고, 3) 미납금>0, 4) 시행사/공실/숙소 제외 필터링
+      // 1) 301~1606 호실만, 2) 연락처 있고, 3) 시행사/공실/숙소 제외 필터링
       let filtered = listData.filter(i => {
         const rn = parseInt(i.room, 10);
         if (isNaN(rn) || rn < 301 || rn > 1606) return false;
         if (!i.contact) return false;
-        if ((i.unpaid || 0) <= 0) return false;
         // 시행사/공실/숙소 제외
         const name = (i.name || '').toLowerCase();
         if (name.includes('시행사') || name.includes('공실') || name.includes('숙소')) return false;
@@ -585,6 +589,15 @@ async function handleTelegramMessage(msg) {
           reply += `\n${r.room}호 | ${r.name || '-'} | ${r.contact || '-'}\n`;
           reply += `총 청구내역 ${Number(r.unpaid||0).toLocaleString()} | 정산금액 ${Number(r.settle||0).toLocaleString()}\n`;
           reply += `특이사항 : ${r.remark||'-'}\n`;
+          // 디버깅: 각 호실의 데이터 확인
+          console.log(`🔍 ${r.room}호 데이터:`, {
+            room: r.room,
+            name: r.name,
+            unpaid: r.unpaid,
+            settle: r.settle,
+            billing: r.billing,
+            payment: r.payment
+          });
         });
 
         await bot.sendMessage(msg.chat.id, reply);
