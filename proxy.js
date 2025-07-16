@@ -128,14 +128,13 @@ async function sendDailySettlement() {
     const res = await callGAS('getAllRoomStatus', { asOfDate: today });
     const listData = Array.isArray(res) ? res : (res && res.data ? res.data : []);
 
-    // 필터링: 301~1606 호실, 연락처 있음, 시행사/공실/숙소 제외
+    // 필터링: 301~1606 호실, 연락처 있음, 시행사/공실/숙소/이름 없는 경우 제외
     let filtered = listData.filter(i => {
       const rn = parseInt(i.room, 10);
       if (isNaN(rn) || rn < 301 || rn > 1606) return false;
       if (!i.contact) return false;
-      // 시행사/공실/숙소 제외
       const name = (i.name || '').toLowerCase();
-      if (name.includes('시행사') || name.includes('공실') || name.includes('숙소')) return false;
+      if (!i.name || name.includes('시행사') || name.includes('공실') || name.includes('숙소')) return false;
       return true;
     });
 
@@ -148,29 +147,28 @@ async function sendDailySettlement() {
     });
     filtered = Object.values(map);
 
-    // 정산금 50만원 미만 필터
+    // 정산금 5만원 미만 필터 (0 초과 5만원 미만만)
     const list = filtered.filter(i => {
-      const st = i.remain || 0;  // settle -> remain으로 수정
-      return st < 0 || st < 500000;
+      const st = i.remain || 0;
+      return st > 0 && st < 50000;
     });
 
     let message = '🕛 오전 12시 자동 알림\n\n';
-    message += `📊 정산금 50만원 미만 세대 (${list.length}개)\n\n`;
-    
+    message += `📊 정산금 50,000원 미만 호실 (${list.length}개)\n\n`;
+    message += '호실 | 이름 | 연락처 | 미납 | 정산 | 특이사항\n';
+    message += '--------------------------------------------------------------\n';
     if (list.length === 0) {
-      message += '해당 세대가 없습니다! 🎉';
+      message += '해당 호실이 없습니다! 🎉';
     } else {
       list.sort((a,b) => parseInt(a.room,10) - parseInt(b.room,10));
       list.forEach(item => {
-        message += `${item.room}호 | ${item.name} | ${(item.remain||0).toLocaleString()}원\n`;
+        message += `${item.room}호 | ${item.name || '-'} | ${item.contact || '-'} | ${(item.unpaid||0).toLocaleString()} | ${(item.remain||0).toLocaleString()} | ${item.note || '-'}\n`;
       });
-      
       const totalUnpaid = list.reduce((sum, item) => sum + (item.unpaid || 0), 0);
       const totalSettle = list.reduce((sum, item) => sum + (item.remain || 0), 0);
       message += `\n총 미납: ${totalUnpaid.toLocaleString()}원`;
       message += `\n총 정산: ${totalSettle.toLocaleString()}원`;
     }
-    
     await bot.sendMessage(process.env.ADMIN_CHAT_ID || '-4893061553', message);
     console.log('✅ 정산 요약 자동 전송 완료');
   } catch (error) {
