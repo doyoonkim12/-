@@ -183,15 +183,23 @@ function getTodayKorea() {
 // 공용 GAS 호출 함수 (텔레그램용 - 타임아웃 없음)
 async function callGAS(func, params = {}) {
   try {
+    console.log(`📡 GAS 호출 시작: ${func}`, params);
+    
     const res = await fetch(GAS_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ func, params })
     });
     
+    console.log(`📡 GAS 응답 상태: ${res.status}`);
+    
     const txt = await res.text();
+    console.log(`📡 GAS 응답 미리보기:`, txt.substring(0, 200));
+    
     try { 
-      return JSON.parse(txt); 
+      const result = JSON.parse(txt);
+      console.log(`📡 GAS 파싱 성공:`, result);
+      return result;
     } catch(e) {
       console.error('JSON 파싱 오류:', e, txt); 
       return { success: false, message: 'JSON 파싱 오류' }; 
@@ -409,8 +417,8 @@ function parseDepositMessage(msg){
   }catch(e){ console.error('parseDepositMessage 오류',e); return null; }
 }
 
-// 메시지 중복 처리 방지
-const processedMessages = new Set();
+// 메시지 중복 처리 방지 (채팅방별로 분리)
+const processedMessages = new Map(); // chatId별로 Set 관리
 
 // 텔레그램 메시지 처리 함수 (WebHook과 Polling 공용)
 async function handleTelegramMessage(msg) {
@@ -436,25 +444,35 @@ async function handleTelegramMessage(msg) {
   }
   
   const messageId = `${msg.chat.id}_${msg.message_id}`;
-  if (processedMessages.has(messageId)) {
-    console.log('⚠️ 중복 메시지 무시:', messageId);
+  
+  // 채팅방별 중복 체크
+  if (!processedMessages.has(chatId)) {
+    processedMessages.set(chatId, new Set());
+  }
+  
+  if (processedMessages.get(chatId).has(messageId)) {
+    console.log('⚠️ 중복 메시지 무시:', messageId, '채팅방:', chatId);
     return;
   }
-  processedMessages.add(messageId);
+  processedMessages.get(chatId).add(messageId);
   
   // 5분 후 메시지 ID 제거 (메모리 누수 방지)
   setTimeout(() => {
-    processedMessages.delete(messageId);
+    if (processedMessages.has(chatId)) {
+      processedMessages.get(chatId).delete(messageId);
+    }
   }, 5 * 60 * 1000);
   
   const textRaw = (msg.text || '').trim();
   const text    = textRaw.replace(/\s+/g, ''); // 공백 제거 버전
-  console.log('📱 텔레그램 메시지 수신:', textRaw);
+  const chatId = msg.chat.id;
+  
+  console.log(`📱 [채팅방 ${chatId}] 텔레그램 메시지 수신:`, textRaw);
   
   // msg.from null 체크 추가
   const senderName = msg.from ? (msg.from.username || msg.from.first_name || 'Unknown') : 'Unknown';
-  console.log('👤 발신자:', senderName);
-  console.log('💬 채팅 ID:', msg.chat.id); // 채팅 ID 로그 추가
+  console.log(`👤 [채팅방 ${chatId}] 발신자:`, senderName);
+  console.log(`💬 [채팅방 ${chatId}] 채팅 ID:`, chatId);
   
   // 채팅 ID 확인 명령어
   if (/^채팅아이디$/i.test(text) || /^chatid$/i.test(text)) {
@@ -515,12 +533,15 @@ async function handleTelegramMessage(msg) {
       const res = await callGAS('getAllRoomStatus', { asOfDate: today });
       const listData = Array.isArray(res) ? res : (res && res.data ? res.data : []);
 
-      // 1) 301~1606 호실만, 2) 연락처 있고, 3) 미납금>0 필터링
+      // 1) 301~1606 호실만, 2) 연락처 있고, 3) 미납금>0, 4) 시행사/공실/숙소 제외 필터링
       let filtered = listData.filter(i => {
         const rn = parseInt(i.room, 10);
         if (isNaN(rn) || rn < 301 || rn > 1606) return false;
         if (!i.contact) return false;
         if ((i.unpaid || 0) <= 0) return false;
+        // 시행사/공실/숙소 제외
+        const name = (i.name || '').toLowerCase();
+        if (name.includes('시행사') || name.includes('공실') || name.includes('숙소')) return false;
         return true;
       });
 
@@ -544,17 +565,31 @@ async function handleTelegramMessage(msg) {
         return;
       }
 
-      let reply = `📋 정산금 ${threshold.toLocaleString()}원 미만 호실 (${list.length}개)\n`;
-      reply += '\n호실 | 이름 | 연락처 | 미납 | 정산 | 특이사항';
-      reply += '\n--------------------------------------------------------------';
+      // 10개씩 나누어서 전송
+      const chunkSize = 10;
+      const totalChunks = Math.ceil(list.length / chunkSize);
       
-      list.forEach(r => {
-        reply += `\n${r.room}호 | ${r.name || '-'} | ${r.contact || '-'}\n`;
-        reply += `총 청구내역 ${Number(r.unpaid||0).toLocaleString()} | 정산금액 ${Number(r.settle||0).toLocaleString()}\n`;
-        reply += `특이사항 : ${r.remark||'-'}\n`;
-      });
+      for (let i = 0; i < list.length; i += chunkSize) {
+        const chunk = list.slice(i, i + chunkSize);
+        const chunkNumber = Math.floor(i / chunkSize) + 1;
+        
+        let reply = `📋 정산금 ${threshold.toLocaleString()}원 미만 호실 (${list.length}개) - ${chunkNumber}/${totalChunks}\n`;
+        reply += '\n호실 | 이름 | 연락처 | 미납 | 정산 | 특이사항';
+        reply += '\n--------------------------------------------------------------';
+        
+        chunk.forEach(r => {
+          reply += `\n${r.room}호 | ${r.name || '-'} | ${r.contact || '-'}\n`;
+          reply += `총 청구내역 ${Number(r.unpaid||0).toLocaleString()} | 정산금액 ${Number(r.settle||0).toLocaleString()}\n`;
+          reply += `특이사항 : ${r.remark||'-'}\n`;
+        });
 
-      bot.sendMessage(msg.chat.id, reply);
+        await bot.sendMessage(msg.chat.id, reply);
+        
+        // 마지막 청크가 아니면 잠시 대기
+        if (i + chunkSize < list.length) {
+          await new Promise(resolve => setTimeout(resolve, 1000)); // 1초 대기
+        }
+      }
     } catch(err){
       console.error('금액 필터 오류:', err);
       bot.sendMessage(msg.chat.id, '❌ 오류: '+err.message);
@@ -634,7 +669,7 @@ async function handleTelegramMessage(msg) {
             }
             // 입금하지 않은 세대
             const unpaidRooms = filteredRooms.filter(r => (r.payment||0) === 0);
-            let unpaidMsg = `\n입금 하지 않은 세대수 : ${unpaidRooms.length}\n해당 호실목록 : ${unpaidRooms.map(r=>r.room).join(', ')}`;
+            let unpaidMsg = `\n입금하지 않은 세대수 : ${unpaidRooms.length}\n해당 호실목록 : ${unpaidRooms.map(r=>r.room).join(', ')}`;
             try {
               await bot.sendMessage(msg.chat.id, unpaidMsg);
             } catch (telegramError) {
@@ -666,10 +701,16 @@ async function handleTelegramMessage(msg) {
       const today = getTodayKorea(); // 한국 시간 기준 오늘 날짜
       console.log(`📅 [악성미납 조회] 한국 시간 기준 오늘: ${today}`);
       
+      // 즉시 응답으로 처리 중임을 알림
+      bot.sendMessage(msg.chat.id, '🔍 악성미납 데이터를 조회 중입니다...');
+      
       const result = await callGAS('getBadDebtors', { 
         asOfDate: today,
         settlementThreshold: 500000 // 50만원 미만 기준
       });
+      
+      console.log('📊 악성미납 GAS 응답:', result);
+      
       if(result && result.success){
         let list = result.data || [];
         
