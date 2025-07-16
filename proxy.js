@@ -125,12 +125,14 @@ async function sendDailySettlement() {
     const res = await callGAS('getAllRoomStatus', { asOfDate: today });
     const listData = Array.isArray(res) ? res : (res && res.data ? res.data : []);
 
-    // 필터링: 301~1606 호실, 연락처 있음, 미납금>0
+    // 필터링: 301~1606 호실, 연락처 있음, 시행사/공실/숙소 제외
     let filtered = listData.filter(i => {
       const rn = parseInt(i.room, 10);
       if (isNaN(rn) || rn < 301 || rn > 1606) return false;
       if (!i.contact) return false;
-      if ((i.unpaid || 0) <= 0) return false;
+      // 시행사/공실/숙소 제외
+      const name = (i.name || '').toLowerCase();
+      if (name.includes('시행사') || name.includes('공실') || name.includes('숙소')) return false;
       return true;
     });
 
