@@ -445,6 +445,7 @@ async function handleTelegramMessage(msg) {
     return;
   }
   
+  const chatId = msg.chat.id;
   const messageId = `${msg.chat.id}_${msg.message_id}`;
   
   // 채팅방별 중복 체크
@@ -467,7 +468,6 @@ async function handleTelegramMessage(msg) {
   
   const textRaw = (msg.text || '').trim();
   const text    = textRaw.replace(/\s+/g, ''); // 공백 제거 버전
-  const chatId = msg.chat.id;
   
   console.log(`📱 [채팅방 ${chatId}] 텔레그램 메시지 수신:`, textRaw);
   
