@@ -587,17 +587,8 @@ async function handleTelegramMessage(msg) {
         
         chunk.forEach(r => {
           reply += `\n${r.room}호 | ${r.name || '-'} | ${r.contact || '-'}\n`;
-          reply += `총 청구내역 ${Number(r.unpaid||0).toLocaleString()} | 정산금액 ${Number(r.settle||0).toLocaleString()}\n`;
+          reply += `총 미납금 ${Number(r.unpaid||0).toLocaleString()} | 총 정산금액 ${Number(r.settle||0).toLocaleString()}\n`;
           reply += `특이사항 : ${r.remark||'-'}\n`;
-          // 디버깅: 각 호실의 데이터 확인
-          console.log(`🔍 ${r.room}호 데이터:`, {
-            room: r.room,
-            name: r.name,
-            unpaid: r.unpaid,
-            settle: r.settle,
-            billing: r.billing,
-            payment: r.payment
-          });
         });
 
         await bot.sendMessage(msg.chat.id, reply);
