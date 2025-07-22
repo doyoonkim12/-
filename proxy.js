@@ -515,8 +515,8 @@ async function handleTelegramMessage(msg) {
   // === [초기화] 전체 리빌드 명령어 처리 ===
   if (text === '초기화') {
     try {
-      await bot.sendMessage(chatId, '🔄 전체 리빌드(runAll_Complete) 실행 중...');
-      const result = await callGAS('runAll_Complete', {});
+      await bot.sendMessage(chatId, '🔄 전체 리빌드(runAll_Part1) 실행 중...');
+      const result = await callGAS('runAll_Part1', {});
       if (result && result.success) {
         await bot.sendMessage(chatId, '✅ 전체 리빌드가 완료되었습니다.');
       } else {
