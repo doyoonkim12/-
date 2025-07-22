@@ -45,31 +45,21 @@ schedule.scheduleJob('*/10 * * * *', () => {
   console.log(`⏰ [${now}] 스케줄러 작동 중...`);
 });
 
-// 테스트용 스케줄러 - 자동알림 확인 완료로 비활성화
-/*
-schedule.scheduleJob('* * * * *', async () => {
+// 매일 00:01 - 전체 리빌드 자동 실행 (runAll_Complete)
+schedule.scheduleJob('1 0 * * *', async () => {
   const now = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
-  const minute = new Date().getMinutes();
-  const second = new Date().getSeconds();
-  
-  // 매 분 0초에 현재 시간 로그
-  if (second === 0) {
-    console.log(`🕐 [${now}] 현재 시간 - 분: ${minute}`);
-  }
-  
-  // 15분에 할일 테스트 (시간 변경)
-  if (minute === 15) {
-    console.log(`🧪 [${now}] 테스트: 할일 자동 전송`);
-    await sendDailyTodos();
-  }
-  
-  // 16분에 정산 테스트 (시간 변경)
-  if (minute === 16) {
-    console.log(`🧪 [${now}] 테스트: 정산 자동 전송`);
-    await sendDailySettlement();
+  console.log(`🔄 [${now}] 00:01 - 전체 리빌드(runAll_Complete) 자동 실행 시작`);
+  try {
+    const result = await callGAS('runAll_Complete', {});
+    if (result && result.success) {
+      console.log('✅ 전체 리빌드(runAll_Complete) 성공:', result.message || '성공');
+    } else {
+      console.error('❌ 전체 리빌드(runAll_Complete) 실패:', result && result.message);
+    }
+  } catch (err) {
+    console.error('❌ 전체 리빌드(runAll_Complete) 실행 중 오류:', err);
   }
 });
-*/
 
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbw1iZg5NQNhuym7p1Ky7WUg6ffa7Pnn0LSVAuZL1mdDmpOgFlsnZuJbO-gLIXuv_BzwBA/exec';
 
@@ -439,16 +429,49 @@ async function handleTelegramMessage(msg) {
     chatId: msg && msg.chat ? msg.chat.id : 'undefined',
     text: msg && msg.text ? msg.text.substring(0, 50) : 'undefined'
   });
-
+  
   // msg 구조 확인
   if (!msg.chat || !msg.chat.id) {
     console.error('❌ handleTelegramMessage: msg.chat or msg.chat.id is undefined');
     return;
   }
-
-  let chatId = msg.chat.id;
-  let textRaw = (msg.text || '').trim();
-  let text    = textRaw.replace(/\s+/g, ''); // 공백 제거 버전
+  
+  const chatId = msg.chat.id;
+  const messageId = `${msg.chat.id}_${msg.message_id}`;
+  
+  // 채팅방별 중복 체크
+  if (!processedMessages.has(chatId)) {
+    processedMessages.set(chatId, new Set());
+  }
+  
+  if (processedMessages.get(chatId).has(messageId)) {
+    console.log('⚠️ 중복 메시지 무시:', messageId, '채팅방:', chatId);
+    return;
+  }
+  processedMessages.get(chatId).add(messageId);
+  
+  // 5분 후 메시지 ID 제거 (메모리 누수 방지)
+  setTimeout(() => {
+    if (processedMessages.has(chatId)) {
+      processedMessages.get(chatId).delete(messageId);
+    }
+  }, 5 * 60 * 1000);
+  
+  const textRaw = (msg.text || '').trim();
+  const text    = textRaw.replace(/\s+/g, ''); // 공백 제거 버전
+  
+  console.log(`📱 [채팅방 ${chatId}] 텔레그램 메시지 수신:`, textRaw);
+  
+  // msg.from null 체크 추가
+  const senderName = msg.from ? (msg.from.username || msg.from.first_name || 'Unknown') : 'Unknown';
+  console.log(`👤 [채팅방 ${chatId}] 발신자:`, senderName);
+  console.log(`💬 [채팅방 ${chatId}] 채팅 ID:`, chatId);
+  
+  // 채팅 ID 확인 명령어
+  if (/^채팅아이디$/i.test(text) || /^chatid$/i.test(text)) {
+    bot.sendMessage(msg.chat.id, `📋 현재 채팅 ID: ${msg.chat.id}\n👤 사용자: ${senderName}`);
+    return;
+  }
 
   // === [최상단] 'n월이사' 명령어 처리 (예: 7월이사, 8월이사) ===
   if (/^(\d{1,2})월이사$/.test(text)) {
@@ -489,32 +512,19 @@ async function handleTelegramMessage(msg) {
     return;
   }
 
-  // 채팅방별 중복 체크
-  const messageId = `${chatId}_${msg.message_id}`;
-  if (!processedMessages.has(chatId)) {
-    processedMessages.set(chatId, new Set());
-  }
-  if (processedMessages.get(chatId).has(messageId)) {
-    console.log('⚠️ 중복 메시지 무시:', messageId, '채팅방:', chatId);
-    return;
-  }
-  processedMessages.get(chatId).add(messageId);
-  // 5분 후 메시지 ID 제거 (메모리 누수 방지)
-  setTimeout(() => {
-    if (processedMessages.has(chatId)) {
-      processedMessages.get(chatId).delete(messageId);
+  // === [초기화] 전체 리빌드 명령어 처리 ===
+  if (text === '초기화') {
+    try {
+      await bot.sendMessage(chatId, '🔄 전체 리빌드(runAll_Complete) 실행 중...');
+      const result = await callGAS('runAll_Complete', {});
+      if (result && result.success) {
+        await bot.sendMessage(chatId, '✅ 전체 리빌드가 완료되었습니다.');
+      } else {
+        await bot.sendMessage(chatId, '❌ 전체 리빌드 실패: ' + (result && result.message ? result.message : '오류'));
+      }
+    } catch (err) {
+      await bot.sendMessage(chatId, '❌ 전체 리빌드 실행 중 오류: ' + err);
     }
-  }, 5 * 60 * 1000);
-
-  console.log(`📱 [채팅방 ${chatId}] 텔레그램 메시지 수신:`, textRaw);
-  // msg.from null 체크 추가
-  const senderName = msg.from ? (msg.from.username || msg.from.first_name || 'Unknown') : 'Unknown';
-  console.log(`👤 [채팅방 ${chatId}] 발신자:`, senderName);
-  console.log(`💬 [채팅방 ${chatId}] 채팅 ID:`, chatId);
-
-  // 채팅 ID 확인 명령어
-  if (/^채팅아이디$/i.test(text) || /^chatid$/i.test(text)) {
-    bot.sendMessage(chatId, `📋 현재 채팅 ID: ${chatId}\n👤 사용자: ${senderName}`);
     return;
   }
 
@@ -525,7 +535,7 @@ async function handleTelegramMessage(msg) {
       if(result && result.success && Array.isArray(result.data)){
         const list = result.data;
         if(list.length === 0){
-          bot.sendMessage(chatId, '모든 호실이 입주 중입니다! 🎉');
+          bot.sendMessage(msg.chat.id, '모든 호실이 입주 중입니다! 🎉');
         } else {
           // 호실 번호와 특이사항 함께 표시
           let reply = `🏠 공실 (${list.length}개)\n\n`;
@@ -536,14 +546,14 @@ async function handleTelegramMessage(msg) {
             }
             reply += '\n';
           });
-          bot.sendMessage(chatId, reply.trim());
+          bot.sendMessage(msg.chat.id, reply.trim());
         }
       }else{
-        bot.sendMessage(chatId, '❌ 공실 목록을 가져오지 못했습니다.');
+        bot.sendMessage(msg.chat.id, '❌ 공실 목록을 가져오지 못했습니다.');
       }
     }catch(err){
       console.error('공실 처리 오류:', err);
-      bot.sendMessage(chatId, '❌ 오류: '+err.message);
+      bot.sendMessage(msg.chat.id, '❌ 오류: '+err.message);
     }
     return; // done
   }
@@ -560,7 +570,7 @@ async function handleTelegramMessage(msg) {
 
       const threshold = value;
       if (isNaN(threshold) || threshold <= 0) {
-        bot.sendMessage(chatId, '⚠️ 금액을 인식하지 못했습니다.');
+        bot.sendMessage(msg.chat.id, '⚠️ 금액을 인식하지 못했습니다.');
         return;
       }
 
@@ -601,7 +611,7 @@ async function handleTelegramMessage(msg) {
       });
 
       if (list.length === 0) {
-        bot.sendMessage(chatId, `조건에 맞는 호실이 없습니다.`);
+        bot.sendMessage(msg.chat.id, `조건에 맞는 호실이 없습니다.`);
         return;
       }
 
@@ -623,7 +633,7 @@ async function handleTelegramMessage(msg) {
           reply += `특이사항 : ${r.remark||'-'}\n`;
         });
 
-        await bot.sendMessage(chatId, reply);
+        await bot.sendMessage(msg.chat.id, reply);
         
         // 마지막 청크가 아니면 잠시 대기
         if (i + chunkSize < list.length) {
@@ -632,7 +642,7 @@ async function handleTelegramMessage(msg) {
       }
     } catch(err){
       console.error('금액 필터 오류:', err);
-      bot.sendMessage(chatId, '❌ 오류: '+err.message);
+      bot.sendMessage(msg.chat.id, '❌ 오류: '+err.message);
     }
     return;
   }
@@ -742,7 +752,7 @@ async function handleTelegramMessage(msg) {
       console.log(`📅 [악성미납 조회] 한국 시간 기준 오늘: ${today}`);
       
       // 즉시 응답으로 처리 중임을 알림
-      bot.sendMessage(chatId, '🔍 악성미납 데이터를 조회 중입니다...');
+      bot.sendMessage(msg.chat.id, '🔍 악성미납 데이터를 조회 중입니다...');
       
       const result = await callGAS('getBadDebtors', { 
         asOfDate: today,
@@ -770,7 +780,7 @@ async function handleTelegramMessage(msg) {
         list.sort((a, b) => parseInt(a.room, 10) - parseInt(b.room, 10));
         
         if(list.length === 0){
-          bot.sendMessage(chatId, '악성미납 세대가 없습니다! 🎉');
+          bot.sendMessage(msg.chat.id, '악성미납 세대가 없습니다! 🎉');
         } else {
           // 한 번에 모든 내용 전송 (악성미납은 개수가 적음)
           let reply = `⚠️ 악성미납 세대 (${list.length}개)\n`;
@@ -793,15 +803,15 @@ async function handleTelegramMessage(msg) {
             reply += `입주일 : ${moveInDateStr} | 정산금액 : ${Number(r.settle||0).toLocaleString()} | 특이사항 : ${r.remark||'-'}\n\n`;
           });
           
-          bot.sendMessage(chatId, reply);
+          bot.sendMessage(msg.chat.id, reply);
         }
       } else {
         const errorMessage = result && result.message ? result.message : '❌ 악성미납 데이터를 가져오지 못했습니다.';
-        bot.sendMessage(chatId, errorMessage);
+        bot.sendMessage(msg.chat.id, errorMessage);
       }
     } catch(err){
       console.error('악성미납 조회 오류:', err);
-      bot.sendMessage(chatId, '❌ 오류: '+err.message);
+      bot.sendMessage(msg.chat.id, '❌ 오류: '+err.message);
     }
     return;
   }
@@ -868,7 +878,7 @@ async function handleTelegramMessage(msg) {
       const uniqueFiltered = Array.from(uniqueRooms.values());
 
       if (uniqueFiltered.length === 0) {
-        bot.sendMessage(chatId, '✅ 모든 호실이 정산 완료되었습니다!');
+        bot.sendMessage(msg.chat.id, '✅ 모든 호실이 정산 완료되었습니다!');
         return;
       }
 
@@ -880,10 +890,10 @@ async function handleTelegramMessage(msg) {
         reply += `\n${r.room} | ${Number(r.unpaid||0).toLocaleString()} | ${Number(r.settle||0).toLocaleString()}`;
       });
 
-      bot.sendMessage(chatId, reply);
+      bot.sendMessage(msg.chat.id, reply);
     } catch(err) {
       console.error('전체 미납 오류:', err);
-      bot.sendMessage(chatId, '❌ 오류: ' + err.message);
+      bot.sendMessage(msg.chat.id, '❌ 오류: ' + err.message);
     }
     return;
   }
@@ -945,13 +955,13 @@ async function handleTelegramMessage(msg) {
         reply += `\n총 청구 금액: ${Number(totalBill).toLocaleString()} 원`;
         reply += `\n총 입금 금액: ${Number(totalPay).toLocaleString()} 원`;
         reply += `\n최종 정산 금액: ${Number(remainNow).toLocaleString()} 원`;
-        bot.sendMessage(chatId, reply);
+        bot.sendMessage(msg.chat.id, reply);
       }else{
-        bot.sendMessage(chatId, result.msg || '❌ 정산 정보를 가져오지 못했습니다.');
+        bot.sendMessage(msg.chat.id, result.msg || '❌ 정산 정보를 가져오지 못했습니다.');
       }
     }catch(err){
       console.error('정산 정보 오류:', err);
-      bot.sendMessage(chatId, '❌ 오류: '+err.message);
+      bot.sendMessage(msg.chat.id, '❌ 오류: '+err.message);
     }
     return;
   }
@@ -977,19 +987,19 @@ async function handleTelegramMessage(msg) {
         if(pdfUrl && typeof pdfUrl === 'string'){
           console.log('📄 PDF URL:', pdfUrl);
           // 파일 직접 전송 대신 다운로드 링크 전송
-          bot.sendMessage(chatId, `✅ ${room}호 퇴실정산 PDF가 생성되었습니다.\n\n📎 다운로드 링크:\n${pdfUrl}`);
+          bot.sendMessage(msg.chat.id, `✅ ${room}호 퇴실정산 PDF가 생성되었습니다.\n\n📎 다운로드 링크:\n${pdfUrl}`);
         } else {
           console.log('❌ PDF URL 형식 오류, 응답:', res);
-          bot.sendMessage(chatId, `❌ PDF URL 형식 오류`);
+          bot.sendMessage(msg.chat.id, `❌ PDF URL 형식 오류`);
         }
       } else {
         console.log('❌ PDF 생성 실패, 응답:', res);
         const errorMsg = res && res.message ? res.message : '알 수 없는 오류';
-        bot.sendMessage(chatId, `❌ PDF 생성 실패: ${errorMsg}`);
+        bot.sendMessage(msg.chat.id, `❌ PDF 생성 실패: ${errorMsg}`);
       }
     } catch(err){
       console.error('PDF 오류:',err);
-      bot.sendMessage(chatId,`❌ PDF 생성 중 오류 발생: ${err.message}`);
+      bot.sendMessage(msg.chat.id,`❌ PDF 생성 중 오류 발생: ${err.message}`);
     }
     return;
   }
@@ -1029,10 +1039,10 @@ async function handleTelegramMessage(msg) {
         }
       });
 
-      bot.sendMessage(chatId, reply);
+      bot.sendMessage(msg.chat.id, reply);
     } catch (err) {
       console.error('❌ 할일 목록 전송 실패:', err);
-      bot.sendMessage(chatId, '❌ 할일 목록 조회 중 오류가 발생했습니다.');
+      bot.sendMessage(msg.chat.id, '❌ 할일 목록 조회 중 오류가 발생했습니다.');
     }
     return; // 처리 완료
   }
@@ -1044,13 +1054,13 @@ async function handleTelegramMessage(msg) {
     try {
       const result = await callGAS('getTelegramArchivedRooms', {});
       if (result && result.success) {
-        await bot.sendMessage(chatId, result.message);
+        await bot.sendMessage(msg.chat.id, result.message);
       } else {
-        await bot.sendMessage(chatId, '📁 아카이브된 호실이 없습니다.');
+        await bot.sendMessage(msg.chat.id, '📁 아카이브된 호실이 없습니다.');
       }
     } catch (err) {
       console.error('아카이브 목록 조회 오류:', err);
-      bot.sendMessage(chatId, '❌ 아카이브 목록 조회 중 오류가 발생했습니다.');
+      bot.sendMessage(msg.chat.id, '❌ 아카이브 목록 조회 중 오류가 발생했습니다.');
     }
     return;
   }
@@ -1062,13 +1072,13 @@ async function handleTelegramMessage(msg) {
     try {
       const result = await callGAS('getTelegramArchivedRoomDetail', { room });
       if (result && result.success) {
-        await bot.sendMessage(chatId, result.message);
+        await bot.sendMessage(msg.chat.id, result.message);
       } else {
-        await bot.sendMessage(chatId, `❌ ${room}호의 아카이브 데이터를 찾을 수 없습니다.`);
+        await bot.sendMessage(msg.chat.id, `❌ ${room}호의 아카이브 데이터를 찾을 수 없습니다.`);
       }
     } catch (err) {
       console.error(`${room}호 아카이브 상세 조회 오류:`, err);
-      bot.sendMessage(chatId, `❌ ${room}호 아카이브 조회 중 오류가 발생했습니다.`);
+      bot.sendMessage(msg.chat.id, `❌ ${room}호 아카이브 조회 중 오류가 발생했습니다.`);
     }
     return;
   }
@@ -1080,7 +1090,7 @@ async function handleTelegramMessage(msg) {
     const outDate = archiveExitMatch[2] || getTodayKorea();
     
     try {
-      await bot.sendMessage(chatId, `🏠 ${room}호 퇴실 처리를 시작합니다...\n(데이터는 아카이브에 안전하게 보관됩니다)`);
+      await bot.sendMessage(msg.chat.id, `🏠 ${room}호 퇴실 처리를 시작합니다...\n(데이터는 아카이브에 안전하게 보관됩니다)`);
       
       const result = await callGAS('removeTenantWithArchive', { 
         room, 
@@ -1096,13 +1106,13 @@ async function handleTelegramMessage(msg) {
         reply += `• 처리자: ${result.archived.archivedBy}\n`;
         reply += `• 처리일: ${new Date(result.archived.archivedDate).toLocaleString('ko-KR')}\n\n`;
         reply += `💡 복구하려면 "${room}호복구"를 입력하세요.`;
-        await bot.sendMessage(chatId, reply);
+        await bot.sendMessage(msg.chat.id, reply);
       } else {
-        await bot.sendMessage(chatId, `❌ ${room}호 퇴실 처리 실패: ${result.message || '알 수 없는 오류'}`);
+        await bot.sendMessage(msg.chat.id, `❌ ${room}호 퇴실 처리 실패: ${result.message || '알 수 없는 오류'}`);
       }
     } catch (err) {
       console.error(`${room}호 퇴실 처리 오류:`, err);
-      bot.sendMessage(chatId, `❌ ${room}호 퇴실 처리 중 오류가 발생했습니다.`);
+      bot.sendMessage(msg.chat.id, `❌ ${room}호 퇴실 처리 중 오류가 발생했습니다.`);
     }
     return;
   }
@@ -1113,7 +1123,7 @@ async function handleTelegramMessage(msg) {
     const room = restoreMatch[1];
     
     try {
-      await bot.sendMessage(chatId, `🔄 ${room}호 데이터 복구를 시작합니다...`);
+      await bot.sendMessage(msg.chat.id, `🔄 ${room}호 데이터 복구를 시작합니다...`);
       
       const result = await callGAS('restoreFromArchive', { 
         room, 
@@ -1128,13 +1138,13 @@ async function handleTelegramMessage(msg) {
         reply += `• 복구자: ${result.restored.restoredBy}\n`;
         reply += `• 복구일: ${new Date(result.restored.restoredDate).toLocaleString('ko-KR')}\n\n`;
         reply += `💡 이제 ${room}호가 다시 활성화되었습니다.`;
-        await bot.sendMessage(chatId, reply);
+        await bot.sendMessage(msg.chat.id, reply);
       } else {
-        await bot.sendMessage(chatId, `❌ ${room}호 복구 실패: ${result.message || '알 수 없는 오류'}`);
+        await bot.sendMessage(msg.chat.id, `❌ ${room}호 복구 실패: ${result.message || '알 수 없는 오류'}`);
       }
     } catch (err) {
       console.error(`${room}호 복구 오류:`, err);
-      bot.sendMessage(chatId, `❌ ${room}호 복구 중 오류가 발생했습니다.`);
+      bot.sendMessage(msg.chat.id, `❌ ${room}호 복구 중 오류가 발생했습니다.`);
     }
     return;
   }
@@ -1171,13 +1181,13 @@ async function handleTelegramMessage(msg) {
           // 파싱 실패 시 기본 표시
         }
         
-        bot.sendMessage(chatId, `✅ ${roomDisplay} ₩${dep.amount.toLocaleString()} 입금 등록 완료!`);
+        bot.sendMessage(msg.chat.id, `✅ ${roomDisplay} ₩${dep.amount.toLocaleString()} 입금 등록 완료!`);
       }else{
-        bot.sendMessage(chatId, `❌ 등록 실패: ${msgRes||'오류'}`);
+        bot.sendMessage(msg.chat.id, `❌ 등록 실패: ${msgRes||'오류'}`);
       }
     }catch(err){
       console.error('입금 등록 오류:',err);
-      bot.sendMessage(chatId,'❌ 입금 등록 중 오류가 발생했습니다.');
+      bot.sendMessage(msg.chat.id,'❌ 입금 등록 중 오류가 발생했습니다.');
     }
     return;
   }
@@ -1201,23 +1211,23 @@ async function handleTelegramMessage(msg) {
           ok = result.success;
         } catch (e) {}
         if (ok) {
-          bot.sendMessage(chatId, `✅ 할일 추가 완료!\n�� ${parsed.date}\n📝 ${parsed.task}`);
+          bot.sendMessage(msg.chat.id, `✅ 할일 추가 완료!\n📅 ${parsed.date}\n📝 ${parsed.task}`);
         } else {
-          bot.sendMessage(chatId, '❌ 할일 추가에 실패했습니다.');
+          bot.sendMessage(msg.chat.id, '❌ 할일 추가에 실패했습니다.');
         }
       })
       .catch(e => {
         console.error('❌ GAS 호출 실패:', e);
-        bot.sendMessage(chatId, `❌ 시트 추가 실패: ${e.toString()}`);
+        bot.sendMessage(msg.chat.id, `❌ 시트 추가 실패: ${e.toString()}`);
       });
   } else {
     // 도움말 체크
     if (/^도움말$/i.test(text) || /^help$/i.test(text)) {
-      await showBuildingManagementHelp(chatId);
+      await showBuildingManagementHelp(msg.chat.id);
       return;
     }
     
-    bot.sendMessage(chatId, `❌ 메시지 형식이 올바르지 않습니다.\n\n💡 도움말을 보려면 "도움말"을 입력하세요.`);
+    bot.sendMessage(msg.chat.id, `❌ 메시지 형식이 올바르지 않습니다.\n\n💡 도움말을 보려면 "도움말"을 입력하세요.`);
   }
 }
 
@@ -1304,3 +1314,4 @@ app.listen(PORT, async () => {
     console.log('Telegram Bot is active and ready! (Development mode - Polling)');
   }
 }); 
+
