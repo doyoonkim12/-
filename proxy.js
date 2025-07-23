@@ -1233,21 +1233,10 @@ async function handleTelegramMessage(msg) {
         console.error('❌ GAS 호출 실패:', e);
         bot.sendMessage(msg.chat.id, `❌ 시트 추가 실패: ${e.toString()}`);
       });
-  } else {
-    // 도움말 체크
-    if (/^도움말$/i.test(text) || /^help$/i.test(text)) {
-      await showBuildingManagementHelp(msg.chat.id);
-      return;
-    }
-    
-    bot.sendMessage(msg.chat.id, `❌ 메시지 형식이 올바르지 않습니다.\n\n💡 도움말을 보려면 "도움말"을 입력하세요.`);
-  }
-
-  // 이름/연락처/차량번호 패턴 감지 (간단 예시)
-  if (
-    /^[가-힣a-zA-Z\s]{2,}$/.test(textRaw) || // 한글/영문 이름
-    /^01[016789]-?\d{3,4}-?\d{4}$/.test(textRaw) || // 전화번호
-    /[가-힣0-9]{4,}/.test(textRaw) // 차량번호 등
+  } else if (
+    /^[가-힣a-zA-Z\s]{2,}$/.test(textRaw) ||
+    /^01[016789]-?\d{3,4}-?\d{4}$/.test(textRaw) ||
+    /[가-힣0-9]{4,}/.test(textRaw)
   ) {
     try {
       const result = await callGAS('findRoomByKeyword', { keyword: textRaw });
@@ -1268,6 +1257,11 @@ async function handleTelegramMessage(msg) {
       await bot.sendMessage(msg.chat.id, '❌ 정보 조회 중 오류가 발생했습니다.');
     }
     return;
+  } else if (/^도움말$/i.test(text) || /^help$/i.test(text)) {
+    await showBuildingManagementHelp(msg.chat.id);
+    return;
+  } else {
+    bot.sendMessage(msg.chat.id, `❌ 메시지 형식이 올바르지 않습니다.\n\n💡 도움말을 보려면 "도움말"을 입력하세요.`);
   }
 }
 
