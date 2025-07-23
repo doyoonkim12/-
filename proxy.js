@@ -173,18 +173,24 @@ function getTodayKorea() {
   return koreaTime.toISOString().split('T')[0]; // YYYY-MM-DD
 }
 
-// 공용 GAS 호출 함수 (텔레그램용 - 타임아웃 없음)
+// 공용 GAS 호출 함수 (텔레그램용 - 타임아웃 설정)
 async function callGAS(func, params = {}) {
   try {
     console.log(`[DEBUG] callGAS 호출: func=`, func, 'params=', params);
     console.log(`📡 GAS 호출 시작: ${func}`, params);
     
+    // 타임아웃 설정 (5분)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000); // 5분 타임아웃
+    
     const res = await fetch(GAS_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ func, params })
+      body: JSON.stringify({ func, params }),
+      signal: controller.signal
     });
     
+    clearTimeout(timeoutId);
     console.log(`📡 GAS 응답 상태: ${res.status}`);
     
     const txt = await res.text();
@@ -199,8 +205,13 @@ async function callGAS(func, params = {}) {
       return { success: false, message: 'JSON 파싱 오류' }; 
     }
   } catch (error) {
-    console.error('❌ GAS 호출 오류:', error);
-    return { success: false, message: `GAS 호출 오류: ${error.message}` };
+    if (error.name === 'AbortError') {
+      console.error('❌ GAS 호출 타임아웃 (5분 초과)');
+      return { success: false, message: '요청 시간 초과 (5분 초과). 다시 시도해주세요.' };
+    } else {
+      console.error('❌ GAS 호출 오류:', error);
+      return { success: false, message: `GAS 호출 오류: ${error.message}` };
+    }
   }
 }
 
@@ -515,15 +526,17 @@ async function handleTelegramMessage(msg) {
   // === [초기화] 전체 리빌드 명령어 처리 ===
   if (text === '초기화') {
     try {
-      await bot.sendMessage(chatId, '🔄 전체 리빌드(runAll_Part1) 실행 중...');
+      await bot.sendMessage(chatId, '🔄 전체 리빌드(runAll_Part1) 실행 중...\n⏱️ 최대 5분 소요될 수 있습니다.');
       const result = await callGAS('runAll_Part1', {});
       if (result && result.success) {
         await bot.sendMessage(chatId, '✅ 전체 리빌드가 완료되었습니다.');
       } else {
-        await bot.sendMessage(chatId, '❌ 전체 리빌드 실패: ' + (result && result.message ? result.message : '오류'));
+        const errorMsg = result && result.message ? result.message : '알 수 없는 오류';
+        await bot.sendMessage(chatId, `❌ 전체 리빌드 실패:\n${errorMsg}\n\n💡 다시 시도해보세요.`);
       }
     } catch (err) {
-      await bot.sendMessage(chatId, '❌ 전체 리빌드 실행 중 오류: ' + err);
+      console.error('초기화 명령어 오류:', err);
+      await bot.sendMessage(chatId, `❌ 전체 리빌드 실행 중 오류:\n${err.message || err}\n\n💡 잠시 후 다시 시도해보세요.`);
     }
     return;
   }
