@@ -498,6 +498,21 @@ async function handleTelegramMessage(msg) {
         if (result.data.moveIn && result.data.moveIn.length > 0) {
           msgText += '입주호실\n호실 | 성함 | 연락처 | 입주일 | 퇴실일\n';
           result.data.moveIn.forEach(r => {
+            msgText += `${r.room} | ${r.name} | ${r.contact} | ${r.moveIn} | ${r.moveOut}\n`;
+          }); // ← forEach 닫기
+        } else {
+          msgText += '입주호실 없음\n';
+        }
+        // 퇴실호실도 동일하게 처리
+        if (result.data.moveOut && result.data.moveOut.length > 0) {
+          msgText += '\n퇴실호실\n호실 | 성함 | 연락처 | 입주일 | 퇴실일\n';
+          result.data.moveOut.forEach(r => {
+            msgText += `${r.room} | ${r.name} | ${r.contact} | ${r.moveIn} | ${r.moveOut}\n`;
+          });
+        } else {
+          msgText += '\n퇴실호실 없음\n';
+        }
+        await bot.sendMessage(chatId, msgText.trim());
       } else {
         await bot.sendMessage(chatId, '결과가 없습니다.');
       }
