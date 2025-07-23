@@ -1249,7 +1249,33 @@ async function handleTelegramMessage(msg) {
         msg += `보증금: ${Number(d.deposit||0).toLocaleString()} / 월세: ${Number(d.rent||0).toLocaleString()} / 관리비: ${Number(d.mgmt||0).toLocaleString()} / 주차비: ${Number(d.park||0).toLocaleString()}\n`;
         msg += `차량번호: ${d.car || '없음'}\n`;
         msg += `특이사항: ${d.note || '-'}\n`;
-        msg += `정산금액: ${d.settle !== undefined && d.settle !== '' ? Number(d.settle).toLocaleString() + '원' : '-'}\n`;
+
+        // 정산 상세 정보 추가
+        try {
+          const settleRes = await callGAS('getSettlementSummary', { room: d.room });
+          if (settleRes && settleRes.success) {
+            // 월별 표 작성
+            const headerRaw = settleRes.header || [];
+            const chargeRaw = settleRes.charge || [];
+            const payRaw    = settleRes.payment || [];
+            let tableStr = '\n월 | 청구 | 입금\n----------------';
+            headerRaw.forEach((m,i)=>{
+              tableStr += `\n${m} | ${Number(chargeRaw[i]||0).toLocaleString()} | ${Number(payRaw[i]||0).toLocaleString()}`;
+            });
+            const totalBill = chargeRaw.reduce((s,v)=>s+v,0);
+            const totalPay  = payRaw.reduce((s,v)=>s+v,0);
+            const remainNow = totalPay - totalBill;
+            tableStr += `\n\n총 청구 금액: ${Number(totalBill).toLocaleString()} 원`;
+            tableStr += `\n총 입금 금액: ${Number(totalPay).toLocaleString()} 원`;
+            tableStr += `\n최종 정산 금액: ${Number(remainNow).toLocaleString()} 원`;
+            msg += tableStr;
+          } else {
+            msg += `정산금액: ${d.settle !== undefined && d.settle !== '' ? Number(d.settle).toLocaleString() + '원' : '-'}\n`;
+          }
+        } catch (e) {
+          msg += `정산금액: ${d.settle !== undefined && d.settle !== '' ? Number(d.settle).toLocaleString() + '원' : '-'}\n`;
+        }
+
         await bot.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
       } else {
         await bot.sendMessage(chatId, result.message || '해당 정보를 찾을 수 없습니다.');
