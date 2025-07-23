@@ -1252,7 +1252,7 @@ async function handleTelegramMessage(msg) {
 
         // 정산 상세 정보 추가
         try {
-          const settleRes = await callGAS('getSettlementSummary', { room: d.room });
+          const settleRes = await callGAS('getSettlementSummary', { room: String(d.room) });
           if (settleRes && settleRes.success) {
             // 월별 표 작성
             const headerRaw = settleRes.header || [];
