@@ -488,8 +488,14 @@ async function handleTelegramMessage(msg) {
   if (/^(\d{1,2})월이사$/.test(text)) {
     const monthMatch = text.match(/^(\d{1,2})월이사$/);
     const month = parseInt(monthMatch[1], 10);
+
+    // 연도 추정: 오늘이 2024년 7월이고, 8월이사면 올해 8월, 1월이사면 내년 1월로 자동 처리
+    let now = new Date();
+    let year = now.getFullYear();
+    if (month < now.getMonth() + 1) year += 1; // 이미 지난 달이면 내년
+
     try {
-      const result = await callGAS('getMoveInOutByMonth', { month });
+      const result = await callGAS('getMoveInOutByMonth', { year, month });
       if (result && result.success && result.message) {
         await bot.sendMessage(chatId, result.message);
       } else if (result && result.success && result.data) {
