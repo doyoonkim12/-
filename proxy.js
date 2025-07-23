@@ -1242,26 +1242,28 @@ async function handleTelegramMessage(msg) {
       const result = await callGAS('findRoomByKeyword', { keyword: textRaw });
       if (result && result.success && result.data) {
         const d = result.data;
+        const formatDate = v => v ? new Date(v).toLocaleDateString('ko-KR') : '-';
         let msg = `🏠 *${d.room}호* ${d.name}\n`;
-        msg += `입주: ${d.moveIn || '-'} / 퇴실: ${d.moveOut || '-'}\n`;
+        msg += `입주: ${formatDate(d.moveIn)} / 퇴실: ${formatDate(d.moveOut)}\n`;
         msg += `계약기간: ${d.contract || '-'} / 담당자: ${d.manager || '-'}\n`;
-        msg += `보증금: ${d.deposit || '-'} / 월세: ${d.rent || '-'} / 관리비: ${d.mgmt || '-'} / 주차비: ${d.park || '-'}\n`;
+        msg += `보증금: ${Number(d.deposit||0).toLocaleString()} / 월세: ${Number(d.rent||0).toLocaleString()} / 관리비: ${Number(d.mgmt||0).toLocaleString()} / 주차비: ${Number(d.park||0).toLocaleString()}\n`;
         msg += `차량번호: ${d.car || '없음'}\n`;
         msg += `특이사항: ${d.note || '-'}\n`;
-        msg += `정산금액: ${d.settle !== undefined ? d.settle.toLocaleString() + '원' : '-'}\n`;
-        await bot.sendMessage(msg.chat.id, msg, { parse_mode: 'Markdown' });
+        msg += `정산금액: ${d.settle !== undefined && d.settle !== '' ? Number(d.settle).toLocaleString() + '원' : '-'}\n`;
+        await bot.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
       } else {
-        await bot.sendMessage(msg.chat.id, result.message || '해당 정보를 찾을 수 없습니다.');
+        await bot.sendMessage(chatId, result.message || '해당 정보를 찾을 수 없습니다.');
       }
     } catch (err) {
-      await bot.sendMessage(msg.chat.id, '❌ 정보 조회 중 오류가 발생했습니다.');
+      console.error('정보 조회 중 오류:', err);
+      await bot.sendMessage(chatId, '❌ 정보 조회 중 오류가 발생했습니다.');
     }
     return;
   } else if (/^도움말$/i.test(text) || /^help$/i.test(text)) {
-    await showBuildingManagementHelp(msg.chat.id);
+    await showBuildingManagementHelp(chatId);
     return;
   } else {
-    bot.sendMessage(msg.chat.id, `❌ 메시지 형식이 올바르지 않습니다.\n\n💡 도움말을 보려면 "도움말"을 입력하세요.`);
+    await bot.sendMessage(chatId, `❌ 메시지 형식이 올바르지 않습니다.\n\n💡 도움말을 보려면 "도움말"을 입력하세요.`);
   }
 }
 
