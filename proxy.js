@@ -1254,7 +1254,7 @@ async function handleTelegramMessage(msg) {
         try {
           const today = new Date();
           const asOfDate = today.toISOString().split('T')[0];
-          const settleRes = await callGAS('getSettlementSummary', { room: String(d.room), asOfDate });
+          const result = await callGAS('findRoomByKeyword', { keyword: textRaw, asOfDate });
           if (settleRes && settleRes.success) {
             // 월별 표 작성
             const headerRaw = settleRes.header || [];
