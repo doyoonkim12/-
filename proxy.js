@@ -917,16 +917,16 @@ async function handleTelegramMessage(msg) {
     try {
       const today = getTodayKorea(); // 한국 시간 기준 오늘 날짜
       console.log(`🔍 [${room}호] 퇴실정산 요청 - 한국 시간 기준일: ${today}`);
-      const result = await callGAS('getSettlementSummary', { room, asOfDate: today });
-      console.log(`📊 [${room}호] GAS 응답:`, result);
-      if(result && result.success){
-        const prof = result.profile || {};
-        const remain = (result.remain||0).toLocaleString();
+      const settleRes = await callGAS('getSettlementSummary', { room, asOfDate: today });
+      console.log(`📊 [${room}호] GAS 응답:`, settleRes);
+      if(settleRes && settleRes.success){
+        const prof = settleRes.profile || {};
+        const remain = (settleRes.remain||0).toLocaleString();
 
         // 월별 표 작성 (이번 달까지)
-        const headerRaw = result.header || [];
-        const chargeRaw = result.charge || []; // billing 대신 charge 사용
-        const payRaw    = result.payment || [];
+        const headerRaw = settleRes.header || [];
+        const chargeRaw = settleRes.charge || []; // billing 대신 charge 사용
+        const payRaw    = settleRes.payment || [];
 
         const todayKorea = getTodayKorea(); // 한국 시간 기준 오늘 날짜
         const todayYM = todayKorea.slice(0,7); // YYYY-MM
@@ -970,7 +970,7 @@ async function handleTelegramMessage(msg) {
         reply += `\n최종 정산 금액: ${Number(remainNow).toLocaleString()} 원`;
         bot.sendMessage(msg.chat.id, reply);
       }else{
-        bot.sendMessage(msg.chat.id, result.msg || '❌ 정산 정보를 가져오지 못했습니다.');
+        bot.sendMessage(msg.chat.id, settleRes.msg || '❌ 정산 정보를 가져오지 못했습니다.');
       }
     }catch(err){
       console.error('정산 정보 오류:', err);
