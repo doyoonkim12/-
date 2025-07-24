@@ -1239,7 +1239,9 @@ async function handleTelegramMessage(msg) {
     /[가-힣0-9]{4,}/.test(textRaw)
   ) {
     try {
-      const result = await callGAS('findRoomByKeyword', { keyword: textRaw });
+      const today = new Date();
+      const asOfDate = today.toISOString().split('T')[0];
+      const settleRes = await callGAS('getSettlementSummary', { room: textRaw, asOfDate });
       if (result && result.success && result.data) {
         const d = result.data;
         const formatDate = v => v ? new Date(v).toLocaleDateString('ko-KR') : '-';
