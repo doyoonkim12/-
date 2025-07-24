@@ -920,7 +920,7 @@ async function handleTelegramMessage(msg) {
   // ===== 표 생성 함수 (호실/이름/연락처/차량번호 검색 모두 사용) =====
   function makeSettleTable(d, todayYM) {
     const headerRaw = d.header || [];
-    const chargeRaw = d.billing || d.charge || [];
+    const chargeRaw = d.charge || [];
     const payRaw    = d.payment || [];
     const header = [], charge = [], pay = [];
     headerRaw.forEach((m,i)=>{
