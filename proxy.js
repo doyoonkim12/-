@@ -1254,12 +1254,12 @@ async function handleTelegramMessage(msg) {
         try {
           const today = new Date();
           const asOfDate = today.toISOString().split('T')[0];
-          const result = await callGAS('findRoomByKeyword', { keyword: textRaw, asOfDate });
+          const settleRes = await callGAS('findRoomByKeyword', { keyword: textRaw, asOfDate });
           if (settleRes && settleRes.success) {
             // 월별 표 작성
-            const headerRaw = settleRes.header || [];
-            const chargeRaw = settleRes.charge || [];
-            const payRaw    = settleRes.payment || [];
+            const headerRaw = settleRes.data.header || [];
+            const chargeRaw = settleRes.data.billing || [];
+            const payRaw    = settleRes.data.payment || [];
             let tableStr = '\n월 | 청구 | 입금\n----------------';
             headerRaw.forEach((m,i)=>{
               tableStr += `\n${m} | ${Number(chargeRaw[i]||0).toLocaleString()} | ${Number(payRaw[i]||0).toLocaleString()}`;
