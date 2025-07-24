@@ -911,6 +911,32 @@ async function handleTelegramMessage(msg) {
     return;
   }
 
+  // ===== 표 생성 함수 (호실/이름/연락처/차량번호 검색 모두 사용) =====
+  function makeSettleTable(d, todayYM) {
+    const headerRaw = d.header || [];
+    const chargeRaw = d.billing || d.charge || [];
+    const payRaw    = d.payment || [];
+    const header = [], charge = [], pay = [];
+    headerRaw.forEach((m,i)=>{
+      if(m <= todayYM){
+        header.push(m);
+        charge.push(chargeRaw[i]||0);
+        pay.push(payRaw[i]||0);
+      }
+    });
+    let tableStr = '\n월 | 청구 | 입금\n----------------';
+    header.forEach((m,i)=>{
+      tableStr += `\n${m} | ${Number(charge[i]||0).toLocaleString()} | ${Number(pay[i]||0).toLocaleString()}`;
+    });
+    const totalBill = charge.reduce((s,v)=>s+v,0);
+    const totalPay  = pay.reduce((s,v)=>s+v,0);
+    const remainNow = totalPay - totalBill;
+    tableStr += `\n\n총 청구 금액: ${Number(totalBill).toLocaleString()} 원`;
+    tableStr += `\n총 입금 금액: ${Number(totalPay).toLocaleString()} 원`;
+    tableStr += `\n최종 정산 금액: ${Number(remainNow).toLocaleString()} 원`;
+    return tableStr;
+  }
+
   // ===== 3) 특정 호실 퇴실 정산 =====
   if (/^\d{3,4}(호)?$/.test(text)) {
     const room = text.replace(/호$/,'');
@@ -921,42 +947,9 @@ async function handleTelegramMessage(msg) {
       console.log(`📊 [${room}호] GAS 응답:`, settleRes);
       if(settleRes && settleRes.success){
         const prof = settleRes.profile || {};
-        const remain = (settleRes.remain||0).toLocaleString();
-
-        // 월별 표 작성 (이번 달까지)
-        const headerRaw = settleRes.header || [];
-        const chargeRaw = settleRes.charge || []; // billing 대신 charge 사용
-        const payRaw    = settleRes.payment || [];
-
-        const todayKorea = getTodayKorea(); // 한국 시간 기준 오늘 날짜
-        const todayYM = todayKorea.slice(0,7); // YYYY-MM
-        const todayFull = todayKorea; // YYYY-MM-DD
-        console.log(`📅 [${room}호] 한국 시간 기준 오늘 날짜: ${todayFull}, 오늘 년월: ${todayYM}`);
-        
-        const header = [];
-        const charge = [];
-        const pay    = [];
-        headerRaw.forEach((m,i)=>{
-          if(m <= todayYM){
-            header.push(m);
-            charge.push(chargeRaw[i]||0); // charge 배열 사용
-            pay.push(payRaw[i]||0);
-            console.log(`📊 [${room}호] ${m}: 청구 ${chargeRaw[i]||0}, 입금 ${payRaw[i]||0}`);
-          }
-        });
-
-        let tableStr = '\n월 | 청구 | 입금\n----------------';
-        header.forEach((m,i)=>{
-          tableStr += `\n${m} | ${Number(charge[i]||0).toLocaleString()} | ${Number(pay[i]||0).toLocaleString()}`;
-        });
-
-        const totalBill = charge.reduce((s,v)=>s+v,0); // charge 합계
-        const totalPay  = pay.reduce((s,v)=>s+v,0);
-        const remainNow = totalPay - totalBill;
-
+        const todayYM = today.slice(0,7);
         let reply = `🧾 ${room}호 퇴실 정산 요약\n`;
         reply += `입주: ${prof.moveIn ? prof.moveIn.toString().split('T')[0] : '-'}\n`;
-        // 퇴실일이 없으면 오늘 날짜 사용 (한국 시간 기준)
         const moveOutDate = prof.moveOut ? prof.moveOut.toString().split('T')[0] : getTodayKorea();
         reply += `퇴실: ${moveOutDate}\n`;
         reply += `이름: ${prof.name || '-'}\n`;
@@ -964,10 +957,7 @@ async function handleTelegramMessage(msg) {
         reply += `보증금: ${Number(prof.deposit||0).toLocaleString()}원\n`;
         reply += `월세/관리비/주차비: ${Number(prof.rent||0).toLocaleString()}/${Number(prof.mgmt||0).toLocaleString()}/${Number(prof.park||0).toLocaleString()}\n`;
         reply += `특이사항: ${prof.remark || '-'}\n`;
-        reply += tableStr + '\n';
-        reply += `\n총 청구 금액: ${Number(totalBill).toLocaleString()} 원`;
-        reply += `\n총 입금 금액: ${Number(totalPay).toLocaleString()} 원`;
-        reply += `\n최종 정산 금액: ${Number(remainNow).toLocaleString()} 원`;
+        reply += makeSettleTable(settleRes, todayYM) + '\n';
         bot.sendMessage(msg.chat.id, reply);
       }else{
         bot.sendMessage(msg.chat.id, settleRes.msg || '❌ 정산 정보를 가져오지 못했습니다.');
@@ -1251,47 +1241,10 @@ async function handleTelegramMessage(msg) {
         msg += `보증금: ${Number(d.deposit||0).toLocaleString()} / 월세: ${Number(d.rent||0).toLocaleString()} / 관리비: ${Number(d.mgmt||0).toLocaleString()} / 주차비: ${Number(d.park||0).toLocaleString()}\n`;
         msg += `차량번호: ${d.car || '없음'}\n`;
         msg += `특이사항: ${d.note || '-'}\n`;
-
-        // 정산 상세 정보 추가
-        try {
-          if (settleRes && settleRes.success) {
-            const headerRaw = d.header || [];
-            const chargeRaw = d.billing || [];
-            const payRaw    = d.payment || [];
-            const todayYM = today.toISOString().slice(0,7); // YYYY-MM
-
-            const header = [];
-            const charge = [];
-            const pay    = [];
-            headerRaw.forEach((m,i)=>{
-              if(m <= todayYM){
-                header.push(m);
-                charge.push(chargeRaw[i]||0);
-                pay.push(payRaw[i]||0);
-              }
-            });
-
-            let tableStr = '\n월 | 청구 | 입금\n----------------';
-            header.forEach((m,i)=>{
-              tableStr += `\n${m} | ${Number(charge[i]||0).toLocaleString()} | ${Number(pay[i]||0).toLocaleString()}`;
-            });
-
-            const totalBill = charge.reduce((s,v)=>s+v,0);
-            const totalPay  = pay.reduce((s,v)=>s+v,0);
-            const remainNow = totalPay - totalBill;
-            tableStr += `\n\n총 청구 금액: ${Number(totalBill).toLocaleString()} 원`;
-            tableStr += `\n총 입금 금액: ${Number(totalPay).toLocaleString()} 원`;
-            tableStr += `\n최종 정산 금액: ${Number(remainNow).toLocaleString()} 원`;
-            msg += tableStr;
-          } else {
-            msg += `정산금액: ${d.settle !== undefined && d.settle !== '' ? Number(d.settle).toLocaleString() + '원' : '-'}\n`;
-          }
-        } catch (e) {
-          msg += `정산금액: ${d.settle !== undefined && d.settle !== '' ? Number(d.settle).toLocaleString() + '원' : '-'}\n`;
-        }
+        const todayYM = today.toISOString().slice(0,7);
+        msg += makeSettleTable(d, todayYM);
         await bot.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
       } else {
-        // 에러 메시지 디버깅용으로 상세 출력
         await bot.sendMessage(chatId, `❌ 정보 조회 중 오류: ${settleRes && (settleRes.msg || settleRes.message || JSON.stringify(settleRes))}`);
       }
     } catch (err) {
