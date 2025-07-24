@@ -914,7 +914,7 @@ async function handleTelegramMessage(msg) {
   // ===== 표 생성 함수 (호실/이름/연락처/차량번호 검색 모두 사용) =====
   function makeSettleTable(d, todayYM) {
     const headerRaw = d.header || [];
-    const chargeRaw = d.charge || d.billing || [];
+    const chargeRaw = d.billing || d.charge || [];
     const payRaw    = d.payment || [];
     const header = [], charge = [], pay = [];
     headerRaw.forEach((m,i)=>{
@@ -1240,9 +1240,9 @@ async function handleTelegramMessage(msg) {
         msg += `계약기간: ${d.contract || '-'} / 담당자: ${d.manager || '-'}\n`;
         msg += `보증금: ${Number(d.deposit||0).toLocaleString()} / 월세: ${Number(d.rent||0).toLocaleString()} / 관리비: ${Number(d.mgmt||0).toLocaleString()} / 주차비: ${Number(d.park||0).toLocaleString()}\n`;
         msg += `차량번호: ${d.car || '없음'}\n`;
-        msg += `특이사항: ${d.note || '-'}\n`;
+        msg += `특이사항: ${d.remark || d.note || '-'}\n`;
         const todayYM = today.toISOString().slice(0,7);
-        msg += makeSettleTable(d, todayYM);
+        msg += makeSettleTable(settleRes, todayYM);
         await bot.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
       } else {
         await bot.sendMessage(chatId, `❌ 정보 조회 중 오류: ${settleRes && (settleRes.msg || settleRes.message || JSON.stringify(settleRes))}`);
@@ -1343,3 +1343,4 @@ app.listen(PORT, async () => {
     console.log('Telegram Bot is active and ready! (Development mode - Polling)');
   }
 }); 
+
