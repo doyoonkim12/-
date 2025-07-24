@@ -1233,7 +1233,7 @@ async function handleTelegramMessage(msg) {
       const asOfDate = today.toISOString().split('T')[0];
       const settleRes = await callGAS('getSettlementSummary', { room: textRaw, asOfDate });
       if (settleRes && settleRes.success && (settleRes.data || settleRes.profile)) {
-        const d = settleRes.data || settleRes
+        const d = settleRes.profile;
         const formatDate = v => v ? new Date(v).toLocaleDateString('ko-KR') : '-';
         let msg = `🏠 *${d.room}호* ${d.name} (${d.contact || '-'})\n`;
         msg += `입주: ${formatDate(d.moveIn)} / 퇴실: ${formatDate(d.moveOut)}\n`;
