@@ -1242,8 +1242,8 @@ async function handleTelegramMessage(msg) {
       const today = new Date();
       const asOfDate = today.toISOString().split('T')[0];
       const settleRes = await callGAS('getSettlementSummary', { room: textRaw, asOfDate });
-      if (settleRes && settleRes.success && result.data) {
-        const d = result.data;
+      if (settleRes && settleRes.success && settleRes.data) {
+        const d = settleRes.data;
         const formatDate = v => v ? new Date(v).toLocaleDateString('ko-KR') : '-';
         let msg = `🏠 *${d.room}호* ${d.name} (${d.contact || '-'})\n`;
         msg += `입주: ${formatDate(d.moveIn)} / 퇴실: ${formatDate(d.moveOut)}\n`;
@@ -1254,9 +1254,7 @@ async function handleTelegramMessage(msg) {
 
         // 정산 상세 정보 추가
         try {
-          const today = new Date();
-          const asOfDate = today.toISOString().split('T')[0];
-          const settleRes = await callGAS('getSettlementSummary', { room: textRaw, asOfDate });
+          // 중복된 settleRes 선언 제거, 위 settleRes 그대로 사용
           if (settleRes && settleRes.success) {
             // 월별 표 작성 (호실로직과 동일하게 이번 달까지만)
             const headerRaw = settleRes.data.header || [];
@@ -1296,7 +1294,7 @@ async function handleTelegramMessage(msg) {
 
         await bot.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
       } else {
-        await bot.sendMessage(chatId, result.message || '해당 정보를 찾을 수 없습니다.');
+        await bot.sendMessage(chatId, settleRes.message || '해당 정보를 찾을 수 없습니다.');
       }
     } catch (err) {
       console.error('정보 조회 중 오류:', err);
