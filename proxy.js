@@ -4,8 +4,8 @@ const TelegramBot = require('node-telegram-bot-api');
 
 // Markdown 이스케이프 함수 추가
 function escapeMarkdown(text) {
-  if (!text) return '';
-  return text.replace(/([_\*\[\]()~`>#+\-=|{}.!])/g, '\\$1');
+  if (text === null || text === undefined) return '';
+  return String(text).replace(/([_*\[\]()~`>#+\-=|{}.!])/g, '\\$1');
 }
 
 const TELEGRAM_BOT_TOKEN = '7415868957:AAFQSjPIu5FxNKpJ_unOs9-WpK4UcFHGHjY'; // 본인 토큰
