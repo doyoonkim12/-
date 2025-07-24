@@ -2,6 +2,12 @@ const express = require('express');
 const fetch = require('node-fetch'); // v2 사용
 const TelegramBot = require('node-telegram-bot-api');
 
+// Markdown 이스케이프 함수 추가
+function escapeMarkdown(text) {
+  if (!text) return '';
+  return text.replace(/([_\*\[\]()~`>#+\-=|{}.!])/g, '\\$1');
+}
+
 const TELEGRAM_BOT_TOKEN = '7415868957:AAFQSjPIu5FxNKpJ_unOs9-WpK4UcFHGHjY'; // 본인 토큰
 const bot = new TelegramBot(TELEGRAM_BOT_TOKEN); // WebHook 방식으로 변경
 
