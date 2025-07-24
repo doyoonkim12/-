@@ -1235,7 +1235,7 @@ async function handleTelegramMessage(msg) {
       if (settleRes && settleRes.success && (settleRes.data || settleRes.profile)) {
         const d = settleRes.profile;
         const formatDate = v => v ? new Date(v).toLocaleDateString('ko-KR') : '-';
-        let msg = `🏠 *${d.room}호* ${d.name} (${d.contact || '-'})\n`;
+        let msg = `🏠 *${d.room ? d.room + '호' : '-'} ${d.name || '-'} (${d.contact || '-'})\n`;
         msg += `입주: ${formatDate(d.moveIn)} / 퇴실: ${formatDate(d.moveOut)}\n`;
         msg += `계약기간: ${d.contract || '-'} / 담당자: ${d.manager || '-'}\n`;
         msg += `보증금: ${Number(d.deposit||0).toLocaleString()} / 월세: ${Number(d.rent||0).toLocaleString()} / 관리비: ${Number(d.mgmt||0).toLocaleString()} / 주차비: ${Number(d.park||0).toLocaleString()}\n`;
