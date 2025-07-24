@@ -914,7 +914,7 @@ async function handleTelegramMessage(msg) {
   // ===== 표 생성 함수 (호실/이름/연락처/차량번호 검색 모두 사용) =====
   function makeSettleTable(d, todayYM) {
     const headerRaw = d.header || [];
-    const chargeRaw = d.billing || d.charge || [];
+    const chargeRaw = d.charge || d.billing || [];
     const payRaw    = d.payment || [];
     const header = [], charge = [], pay = [];
     headerRaw.forEach((m,i)=>{
@@ -1232,15 +1232,15 @@ async function handleTelegramMessage(msg) {
       const today = new Date();
       const asOfDate = today.toISOString().split('T')[0];
       const settleRes = await callGAS('getSettlementSummary', { room: textRaw, asOfDate });
-      if (settleRes && settleRes.success) {
-        const d = settleRes; // 반드시 전체 객체를 사용
+      if (settleRes && settleRes.success && (settleRes.data || settleRes.profile)) {
+        const d = settleRes.data || settleRes.profile;
         const formatDate = v => v ? new Date(v).toLocaleDateString('ko-KR') : '-';
-        let msg = `🏠 *${d.profile.room}호* ${d.profile.name} (${d.profile.contact || '-'})\n`;
-        msg += `입주: ${formatDate(d.profile.moveIn)} / 퇴실: ${formatDate(d.profile.moveOut)}\n`;
-        msg += `계약기간: ${d.profile.contract || '-'} / 담당자: ${d.profile.manager || '-'}\n`;
-        msg += `보증금: ${Number(d.profile.deposit||0).toLocaleString()} / 월세: ${Number(d.profile.rent||0).toLocaleString()} / 관리비: ${Number(d.profile.mgmt||0).toLocaleString()} / 주차비: ${Number(d.profile.park||0).toLocaleString()}\n`;
-        msg += `차량번호: ${d.profile.car || '없음'}\n`;
-        msg += `특이사항: ${d.profile.remark || '-'}\n`;
+        let msg = `🏠 *${d.room}호* ${d.name} (${d.contact || '-'})\n`;
+        msg += `입주: ${formatDate(d.moveIn)} / 퇴실: ${formatDate(d.moveOut)}\n`;
+        msg += `계약기간: ${d.contract || '-'} / 담당자: ${d.manager || '-'}\n`;
+        msg += `보증금: ${Number(d.deposit||0).toLocaleString()} / 월세: ${Number(d.rent||0).toLocaleString()} / 관리비: ${Number(d.mgmt||0).toLocaleString()} / 주차비: ${Number(d.park||0).toLocaleString()}\n`;
+        msg += `차량번호: ${d.car || '없음'}\n`;
+        msg += `특이사항: ${d.note || '-'}\n`;
         const todayYM = today.toISOString().slice(0,7);
         msg += makeSettleTable(d, todayYM);
         await bot.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
