@@ -1242,8 +1242,8 @@ async function handleTelegramMessage(msg) {
       const today = new Date();
       const asOfDate = today.toISOString().split('T')[0];
       const settleRes = await callGAS('getSettlementSummary', { room: textRaw, asOfDate });
-      if (settleRes && settleRes.success && settleRes.data) {
-        const d = settleRes.data;
+      if (settleRes && settleRes.success && (settleRes.data || settleRes.profile)) {
+        const d = settleRes.data || settleRes.profile;
         const formatDate = v => v ? new Date(v).toLocaleDateString('ko-KR') : '-';
         let msg = `🏠 *${d.room}호* ${d.name} (${d.contact || '-'})\n`;
         msg += `입주: ${formatDate(d.moveIn)} / 퇴실: ${formatDate(d.moveOut)}\n`;
@@ -1255,9 +1255,9 @@ async function handleTelegramMessage(msg) {
         // 정산 상세 정보 추가
         try {
           if (settleRes && settleRes.success) {
-            const headerRaw = settleRes.data.header || [];
-            const chargeRaw = settleRes.data.billing || [];
-            const payRaw    = settleRes.data.payment || [];
+            const headerRaw = d.header || [];
+            const chargeRaw = d.billing || [];
+            const payRaw    = d.payment || [];
             const todayYM = today.toISOString().slice(0,7); // YYYY-MM
 
             const header = [];
