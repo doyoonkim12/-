@@ -1256,16 +1256,30 @@ async function handleTelegramMessage(msg) {
           const asOfDate = today.toISOString().split('T')[0];
           const settleRes = await callGAS('findRoomByKeyword', { keyword: textRaw, asOfDate });
           if (settleRes && settleRes.success) {
-            // 월별 표 작성
+            // 월별 표 작성 (호실로직과 동일하게 이번 달까지만)
             const headerRaw = settleRes.data.header || [];
             const chargeRaw = settleRes.data.billing || [];
             const payRaw    = settleRes.data.payment || [];
-            let tableStr = '\n월 | 청구 | 입금\n----------------';
+            const todayYM = today.toISOString().slice(0,7); // YYYY-MM
+
+            const header = [];
+            const charge = [];
+            const pay    = [];
             headerRaw.forEach((m,i)=>{
-              tableStr += `\n${m} | ${Number(chargeRaw[i]||0).toLocaleString()} | ${Number(payRaw[i]||0).toLocaleString()}`;
+              if(m <= todayYM){
+                header.push(m);
+                charge.push(chargeRaw[i]||0);
+                pay.push(payRaw[i]||0);
+              }
             });
-            const totalBill = chargeRaw.reduce((s,v)=>s+v,0);
-            const totalPay  = payRaw.reduce((s,v)=>s+v,0);
+
+            let tableStr = '\n월 | 청구 | 입금\n----------------';
+            header.forEach((m,i)=>{
+              tableStr += `\n${m} | ${Number(charge[i]||0).toLocaleString()} | ${Number(pay[i]||0).toLocaleString()}`;
+            });
+
+            const totalBill = charge.reduce((s,v)=>s+v,0);
+            const totalPay  = pay.reduce((s,v)=>s+v,0);
             const remainNow = totalPay - totalBill;
             tableStr += `\n\n총 청구 금액: ${Number(totalBill).toLocaleString()} 원`;
             tableStr += `\n총 입금 금액: ${Number(totalPay).toLocaleString()} 원`;
