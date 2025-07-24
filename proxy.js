@@ -1242,7 +1242,7 @@ async function handleTelegramMessage(msg) {
       const today = new Date();
       const asOfDate = today.toISOString().split('T')[0];
       const settleRes = await callGAS('getSettlementSummary', { room: textRaw, asOfDate });
-      if (result && settleRes.success && result.data) {
+      if (settleRes && settleRes.success && result.data) {
         const d = result.data;
         const formatDate = v => v ? new Date(v).toLocaleDateString('ko-KR') : '-';
         let msg = `🏠 *${d.room}호* ${d.name} (${d.contact || '-'})\n`;
