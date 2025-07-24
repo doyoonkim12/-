@@ -914,7 +914,7 @@ async function handleTelegramMessage(msg) {
   // ===== 표 생성 함수 (호실/이름/연락처/차량번호 검색 모두 사용) =====
   function makeSettleTable(d, todayYM) {
     const headerRaw = d.header || [];
-    const chargeRaw = d.charge || d.billing || [];
+    const chargeRaw = d.billing || d.charge || [];
     const payRaw    = d.payment || [];
     const header = [], charge = [], pay = [];
     headerRaw.forEach((m,i)=>{
@@ -1233,9 +1233,9 @@ async function handleTelegramMessage(msg) {
       const asOfDate = today.toISOString().split('T')[0];
       const settleRes = await callGAS('getSettlementSummary', { room: textRaw, asOfDate });
       if (settleRes && settleRes.success && (settleRes.data || settleRes.profile)) {
-        const d = settleRes.profile;
+        const d = settleRes.data || settleRes.profile;
         const formatDate = v => v ? new Date(v).toLocaleDateString('ko-KR') : '-';
-        let msg = `🏠 *${d.room ? d.room + '호' : '-'} ${d.name || '-'} (${d.contact || '-'})\n`;
+        let msg = `🏠 *${d.room}호* ${d.name} (${d.contact || '-'})\n`;
         msg += `입주: ${formatDate(d.moveIn)} / 퇴실: ${formatDate(d.moveOut)}\n`;
         msg += `계약기간: ${d.contract || '-'} / 담당자: ${d.manager || '-'}\n`;
         msg += `보증금: ${Number(d.deposit||0).toLocaleString()} / 월세: ${Number(d.rent||0).toLocaleString()} / 관리비: ${Number(d.mgmt||0).toLocaleString()} / 주차비: ${Number(d.park||0).toLocaleString()}\n`;
