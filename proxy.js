@@ -1254,9 +1254,7 @@ async function handleTelegramMessage(msg) {
 
         // 정산 상세 정보 추가
         try {
-          // 중복된 settleRes 선언 제거, 위 settleRes 그대로 사용
           if (settleRes && settleRes.success) {
-            // 월별 표 작성 (호실로직과 동일하게 이번 달까지만)
             const headerRaw = settleRes.data.header || [];
             const chargeRaw = settleRes.data.billing || [];
             const payRaw    = settleRes.data.payment || [];
@@ -1291,10 +1289,10 @@ async function handleTelegramMessage(msg) {
         } catch (e) {
           msg += `정산금액: ${d.settle !== undefined && d.settle !== '' ? Number(d.settle).toLocaleString() + '원' : '-'}\n`;
         }
-
         await bot.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
       } else {
-        await bot.sendMessage(chatId, settleRes.message || '해당 정보를 찾을 수 없습니다.');
+        // 에러 메시지 디버깅용으로 상세 출력
+        await bot.sendMessage(chatId, `❌ 정보 조회 중 오류: ${settleRes && (settleRes.msg || settleRes.message || JSON.stringify(settleRes))}`);
       }
     } catch (err) {
       console.error('정보 조회 중 오류:', err);
