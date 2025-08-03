@@ -649,7 +649,7 @@ async function handleTelegramMessage(msg) {
         chunk.forEach(r => {
           reply += `\n${r.room}호 | ${r.name || '-'} | ${r.contact || '-'}\n`;
           reply += `총 미납금 ${Number(r.unpaid||0).toLocaleString()} | 총 정산금액 ${Number(r.remain||0).toLocaleString()}\n`;
-          reply += `특이사항 : ${r.remark||'-'}\n`;
+          reply += `특이사항 : ${r.note||'-'}\n`;
         });
 
         await bot.sendMessage(msg.chat.id, reply);
@@ -819,7 +819,7 @@ async function handleTelegramMessage(msg) {
             const roomDisplay = isNewResident ? `${r.room}호(1달미만)` : `${r.room}호`;
             
             reply += `${roomDisplay} | ${r.name||'-'} | ${r.contact||'-'}\n`;
-            reply += `입주일 : ${moveInDateStr} | 정산금액 : ${Number(r.remain||0).toLocaleString()} | 특이사항 : ${r.remark||'-'}\n\n`;
+            reply += `입주일 : ${moveInDateStr} | 정산금액 : ${Number(r.remain||0).toLocaleString()} | 특이사항 : ${r.note||'-'}\n\n`;
           });
           
           bot.sendMessage(msg.chat.id, reply);
