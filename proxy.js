@@ -625,7 +625,7 @@ async function handleTelegramMessage(msg) {
 
       // 4) 최대 정산금액 필터 (양수 기준). 음수(환급) 금액은 항상 포함
       const list = filtered.filter(i => {
-        const st = i.remain || 0;  // settle -> remain으로 수정
+        const st = i.remain || 0;  // remain 필드 사용 (UI와 동일)
         return st < 0 || st < threshold;
       });
 
@@ -804,7 +804,7 @@ async function handleTelegramMessage(msg) {
           // 한 번에 모든 내용 전송 (악성미납은 개수가 적음)
           let reply = `⚠️ 악성미납 세대 (${list.length}개)\n`;
           reply += '2개월 입금없음 또는 정산금 50만원 미만(마이너스 포함)\n\n';
-          reply += `💰 총 정산금액: ${list.reduce((sum, r) => sum + (r.settle||0), 0).toLocaleString()}원\n\n`;
+          reply += `💰 총 정산금액: ${list.reduce((sum, r) => sum + (r.remain||0), 0).toLocaleString()}원\n\n`;
           reply += '호실 | 이름 | 연락처 | 입주일 | 정산금액 | 특이사항\n';
           reply += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
           
@@ -819,7 +819,7 @@ async function handleTelegramMessage(msg) {
             const roomDisplay = isNewResident ? `${r.room}호(1달미만)` : `${r.room}호`;
             
             reply += `${roomDisplay} | ${r.name||'-'} | ${r.contact||'-'}\n`;
-            reply += `입주일 : ${moveInDateStr} | 정산금액 : ${Number(r.settle||0).toLocaleString()} | 특이사항 : ${r.remark||'-'}\n\n`;
+            reply += `입주일 : ${moveInDateStr} | 정산금액 : ${Number(r.remain||0).toLocaleString()} | 특이사항 : ${r.remark||'-'}\n\n`;
           });
           
           bot.sendMessage(msg.chat.id, reply);
@@ -883,7 +883,7 @@ async function handleTelegramMessage(msg) {
         const rn = parseInt(i.room, 10);
         if (isNaN(rn) || rn < 301 || rn > 1606) return false;
         if (!i.contact) return false;
-        const settle = parseFloat(i.settle || 0);
+        const settle = parseFloat(i.remain || 0);  // remain 필드 사용 (UI와 동일)
         return settle > 0; // 정산금이 양수인 호실만
       });
 
@@ -906,7 +906,7 @@ async function handleTelegramMessage(msg) {
       
       uniqueFiltered.sort((a, b) => parseInt(a.room, 10) - parseInt(b.room, 10));
       uniqueFiltered.forEach(r => {
-        reply += `\n${r.room} | ${Number(r.unpaid||0).toLocaleString()} | ${Number(r.settle||0).toLocaleString()}`;
+        reply += `\n${r.room} | ${Number(r.unpaid||0).toLocaleString()} | ${Number(r.remain||0).toLocaleString()}`;
       });
 
       bot.sendMessage(msg.chat.id, reply);
@@ -1349,4 +1349,5 @@ app.listen(PORT, async () => {
     console.log('Telegram Bot is active and ready! (Development mode - Polling)');
   }
 }); 
+
 
